@@ -1002,4 +1002,4 @@ It is not intended for clinical deployment, emergency use, diagnosis, treatment 
 
 Built with Python, Streamlit, Pandas, and Supermemory Local.
 
-</div>s
+</div>
