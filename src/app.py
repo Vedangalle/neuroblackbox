@@ -849,6 +849,822 @@ def deterministic_recall(
         6,
     )
 
+# =============================================================================
+# Grounded question answering
+# =============================================================================
+
+SEVERITY_RANK = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+}
+
+
+def format_date_range(
+    records: pd.DataFrame,
+) -> str:
+    if records.empty:
+        return "No matching dates"
+
+    first_date = records["date"].min().strftime(
+        "%b %d, %Y",
+    )
+
+    last_date = records["date"].max().strftime(
+        "%b %d, %Y",
+    )
+
+    if first_date == last_date:
+        return first_date
+
+    return f"{first_date} – {last_date}"
+
+
+def severity_summary(
+    records: pd.DataFrame,
+) -> str:
+    if records.empty:
+        return "No severity data"
+
+    counts = (
+        records["severity"]
+        .value_counts()
+        .to_dict()
+    )
+
+    parts = []
+
+    for severity in [
+        "high",
+        "medium",
+        "low",
+    ]:
+        count = int(
+            counts.get(
+                severity,
+                0,
+            )
+        )
+
+        if count:
+            parts.append(
+                f"{count} {severity}"
+            )
+
+    return ", ".join(parts) or "No severity data"
+
+
+def category_summary(
+    records: pd.DataFrame,
+) -> str:
+    if records.empty:
+        return "No matching categories"
+
+    counts = (
+        records["type"]
+        .value_counts()
+        .head(4)
+    )
+
+    return ", ".join(
+        f"{category}: {int(count)}"
+        for category, count in counts.items()
+    )
+
+
+def records_for_repetition(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    records = df[
+        (df["type"] == "repetition")
+        | df["observation"].str.contains(
+            (
+                "repeated question|repeated the same question|"
+                "asked the same question|same question|"
+                "repeated story|same story|asked again"
+            ),
+            case=False,
+            regex=True,
+            na=False,
+        )
+    ].copy()
+
+    return (
+        records
+        .drop_duplicates(
+            subset=[
+                "date",
+                "observation",
+            ],
+        )
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+
+def records_for_speech(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    records = df[
+        (df["type"] == "speech")
+        | df["observation"].str.contains(
+            (
+                "speech pause|longer pause|paused|"
+                "word.finding|searching for words|"
+                "remember a familiar name"
+            ),
+            case=False,
+            regex=True,
+            na=False,
+        )
+    ].copy()
+
+    return (
+        records
+        .drop_duplicates(
+            subset=[
+                "date",
+                "observation",
+            ],
+        )
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+
+def records_for_improvements(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    return df[
+        (df["type"] == "improvement")
+        | df["observation"].str.contains(
+            (
+                "improved|improvement|better|"
+                "fewer|less frequent|returned to normal"
+            ),
+            case=False,
+            regex=True,
+            na=False,
+        )
+    ].sort_values(
+        "date",
+    )
+
+
+def evidence_items(
+    records: pd.DataFrame,
+    limit: int = 4,
+) -> list[str]:
+    if records.empty:
+        return []
+
+    selected = records.sort_values(
+        "date",
+    ).tail(
+        limit,
+    )
+
+    items = []
+
+    for _, row in selected.iterrows():
+        item_date = row["date"].strftime(
+            "%b %d",
+        )
+
+        items.append(
+            (
+                f"{item_date} — "
+                f"{row['type']} / {row['severity']}: "
+                f"{row['observation']}"
+            )
+        )
+
+    return items
+
+
+def compare_early_and_late_frequency(
+    records: pd.DataFrame,
+) -> str:
+    """
+    Describe distribution across time without claiming clinical progression.
+    """
+    if len(records) < 2:
+        return (
+            "There are not enough matching records to assess "
+            "how the pattern changed over time."
+        )
+
+    ordered = records.sort_values(
+        "date",
+    )
+
+    midpoint = (
+        ordered["date"].min()
+        + (
+            ordered["date"].max()
+            - ordered["date"].min()
+        ) / 2
+    )
+
+    early_count = int(
+        (ordered["date"] <= midpoint).sum()
+    )
+
+    late_count = int(
+        (ordered["date"] > midpoint).sum()
+    )
+
+    if late_count > early_count:
+        return (
+            "More matching observations were recorded in the later "
+            "half of the observation period."
+        )
+
+    if late_count < early_count:
+        return (
+            "More matching observations were recorded in the earlier "
+            "half of the observation period."
+        )
+
+    return (
+        "Matching observations were distributed relatively evenly "
+        "across the observation period."
+    )
+
+
+def generate_grounded_answer(
+    df: pd.DataFrame,
+    question: str,
+) -> dict[str, Any]:
+    """
+    Generate a conservative answer grounded in the local source record.
+
+    This function summarizes caregiver-entered observations only.
+    It does not perform diagnosis, prediction, or causal inference.
+    """
+    normalized_question = question.lower().strip()
+
+    if df.empty:
+        return {
+            "title": "No observation record available",
+            "answer": (
+                "NeuroBlackBox cannot answer this question because "
+                "the local observation record is empty."
+            ),
+            "evidence": [],
+            "record_count": 0,
+            "date_range": "No data",
+            "boundary": (
+                "This response summarizes recorded observations only."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Before latest high-severity episode
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "before latest episode",
+            "before the latest episode",
+            "before last episode",
+            "before the last episode",
+            "before latest high-severity episode",
+            "before the latest high-severity episode",
+        ]
+    ):
+        episode, records = before_episode_window(
+            df,
+            days_before=10,
+        )
+
+        if episode is None:
+            return {
+                "title": "No qualifying episode found",
+                "answer": (
+                    "No observation is currently categorized as both "
+                    "an episode and high severity, so a before-episode "
+                    "reconstruction cannot be generated."
+                ),
+                "evidence": [],
+                "record_count": 0,
+                "date_range": "No qualifying episode",
+                "boundary": (
+                    "Absence of a qualifying record does not mean "
+                    "that no significant event occurred."
+                ),
+            }
+
+        episode_date = pd.Timestamp(
+            episode["date"],
+        ).strftime(
+            "%b %d, %Y",
+        )
+
+        metrics = analyze_observations(
+            records,
+        )
+
+        answer = (
+            f"In the 10 days before the high-severity episode on "
+            f"{episode_date}, {len(records)} source observations were "
+            f"recorded. They included "
+            f"{metrics['speech']} speech observation(s), "
+            f"{metrics['repetition']} repetition observation(s), and "
+            f"{metrics['routine']} routine observation(s). "
+            "These records show what was documented before the episode, "
+            "but they do not establish warning signs, prediction, or causation."
+        )
+
+        return {
+            "title": "Observations preceding the latest episode",
+            "answer": answer,
+            "evidence": evidence_items(
+                records,
+                limit=5,
+            ),
+            "record_count": len(records),
+            "date_range": format_date_range(
+                records,
+            ),
+            "boundary": (
+                "Temporal proximity does not establish that an observation "
+                "predicted or caused the episode."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Repetition
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "repeat",
+            "repetition",
+            "repeated question",
+            "repeated questions",
+            "same question",
+            "same story",
+        ]
+    ):
+        records = records_for_repetition(
+            df,
+        )
+
+        if records.empty:
+            return {
+                "title": "No repetition-related records found",
+                "answer": (
+                    "No repetition-related observations were found "
+                    "in the current local record."
+                ),
+                "evidence": [],
+                "record_count": 0,
+                "date_range": "No matching records",
+                "boundary": (
+                    "This result reflects only observations entered "
+                    "into NeuroBlackBox."
+                ),
+            }
+
+        frequency_statement = (
+            compare_early_and_late_frequency(
+                records,
+            )
+        )
+
+        high_count = int(
+            (records["severity"] == "high").sum()
+        )
+
+        answer = (
+            f"{len(records)} repetition-related observation(s) were "
+            f"recorded between {format_date_range(records)}. "
+            f"{frequency_statement} "
+        )
+
+        if high_count:
+            answer += (
+                f"The record includes {high_count} high-severity "
+                "repetition observation(s). "
+            )
+
+        answer += (
+            "The pattern is recurrent in the caregiver record, but the "
+            "available observations do not by themselves establish clinical "
+            "progression."
+        )
+
+        return {
+            "title": "Repeated questions appear as a recurring pattern",
+            "answer": answer,
+            "evidence": evidence_items(
+                records,
+                limit=5,
+            ),
+            "record_count": len(records),
+            "date_range": format_date_range(
+                records,
+            ),
+            "boundary": (
+                "Frequency in the log may also reflect how often caregivers "
+                "entered observations."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Speech pauses and word finding
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "speech",
+            "pause",
+            "pauses",
+            "word finding",
+            "word-finding",
+            "speaking",
+        ]
+    ):
+        records = records_for_speech(
+            df,
+        )
+
+        if records.empty:
+            return {
+                "title": "No speech-related records found",
+                "answer": (
+                    "No speech-pause or word-finding observations were "
+                    "found in the current local record."
+                ),
+                "evidence": [],
+                "record_count": 0,
+                "date_range": "No matching records",
+                "boundary": (
+                    "This result reflects only observations entered "
+                    "into NeuroBlackBox."
+                ),
+            }
+
+        frequency_statement = (
+            compare_early_and_late_frequency(
+                records,
+            )
+        )
+
+        answer = (
+            f"{len(records)} speech-related observation(s) were recorded "
+            f"between {format_date_range(records)}. "
+            f"{frequency_statement} "
+            f"The recorded severity mix is {severity_summary(records)}. "
+            "Several records mention longer pauses or difficulty recalling "
+            "familiar words or names."
+        )
+
+        return {
+            "title": "Speech pauses and word-finding changes were recorded",
+            "answer": answer,
+            "evidence": evidence_items(
+                records,
+                limit=5,
+            ),
+            "record_count": len(records),
+            "date_range": format_date_range(
+                records,
+            ),
+            "boundary": (
+                "This describes caregiver-entered observations and is not "
+                "a cognitive assessment."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Improvements
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "improvement",
+            "improvements",
+            "improved",
+            "better",
+            "getting better",
+        ]
+    ):
+        records = records_for_improvements(
+            df,
+        )
+
+        if records.empty:
+            return {
+                "title": "No explicit improvement records found",
+                "answer": (
+                    "The current record does not contain observations "
+                    "explicitly categorized or worded as improvements. "
+                    "This does not establish that no improvement occurred."
+                ),
+                "evidence": [],
+                "record_count": 0,
+                "date_range": "No matching records",
+                "boundary": (
+                    "Only explicitly recorded observations can be summarized."
+                ),
+            }
+
+        return {
+            "title": "Recorded improvements",
+            "answer": (
+                f"{len(records)} improvement-related observation(s) were "
+                f"recorded between {format_date_range(records)}."
+            ),
+            "evidence": evidence_items(
+                records,
+                limit=5,
+            ),
+            "record_count": len(records),
+            "date_range": format_date_range(
+                records,
+            ),
+            "boundary": (
+                "These are caregiver-entered descriptions, not verified "
+                "clinical outcomes."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Clinician discussion
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "discuss with",
+            "ask the doctor",
+            "ask doctor",
+            "tell the doctor",
+            "clinician",
+            "next appointment",
+        ]
+    ):
+        high_records = df[
+            df["severity"] == "high"
+        ].sort_values(
+            "date",
+        )
+
+        recent_records = df.sort_values(
+            "date",
+        ).tail(
+            5,
+        )
+
+        evidence = evidence_items(
+            high_records,
+            limit=3,
+        )
+
+        evidence.extend(
+            item
+            for item in evidence_items(
+                recent_records,
+                limit=3,
+            )
+            if item not in evidence
+        )
+
+        answer = (
+            "The next clinical discussion should prioritize the "
+            f"{len(high_records)} high-severity record(s), recent speech "
+            "and repetition changes, medication or routine disruptions, "
+            "and whether any recommendations from the previous visit were "
+            "followed and appeared helpful. Bring the dated source records "
+            "so the clinician can review the original observations."
+        )
+
+        return {
+            "title": "Priority topics for the next clinical discussion",
+            "answer": answer,
+            "evidence": evidence[:6],
+            "record_count": len(
+                high_records
+            ),
+            "date_range": format_date_range(
+                df,
+            ),
+            "boundary": (
+                "NeuroBlackBox organizes discussion topics but does not "
+                "recommend diagnosis or treatment."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # Previous appointment / general change
+    # -------------------------------------------------------------------------
+
+    if any(
+        phrase in normalized_question
+        for phrase in [
+            "last visit",
+            "previous visit",
+            "last appointment",
+            "previous appointment",
+            "what changed",
+            "changes",
+        ]
+    ):
+        appointment_records = df[
+            df["type"] == "appointment"
+        ].sort_values(
+            "date",
+        )
+
+        if not appointment_records.empty:
+            latest_appointment_date = (
+                appointment_records["date"].max()
+            )
+
+            records = df[
+                df["date"] > latest_appointment_date
+            ].sort_values(
+                "date",
+            )
+        else:
+            records = thirty_day_window(
+                df,
+            )
+
+        metrics = analyze_observations(
+            records,
+        )
+
+        if records.empty:
+            return {
+                "title": "No later observations found",
+                "answer": (
+                    "No observations were recorded after the latest "
+                    "appointment record."
+                ),
+                "evidence": [],
+                "record_count": 0,
+                "date_range": "No matching records",
+                "boundary": (
+                    "This result reflects the current local record only."
+                ),
+            }
+
+        answer = (
+            f"{len(records)} observation(s) were recorded during the "
+            f"review period. The record includes "
+            f"{metrics['speech']} speech, "
+            f"{metrics['repetition']} repetition, "
+            f"{metrics['routine']} routine, "
+            f"{metrics['episode']} episode, and "
+            f"{metrics['high']} high-severity observation(s). "
+            f"The most represented categories were "
+            f"{category_summary(records)}."
+        )
+
+        return {
+            "title": "Changes recorded during the review period",
+            "answer": answer,
+            "evidence": evidence_items(
+                records,
+                limit=5,
+            ),
+            "record_count": len(records),
+            "date_range": format_date_range(
+                records,
+            ),
+            "boundary": (
+                "Counts describe the observation log and are not measures "
+                "of disease severity or progression."
+            ),
+        }
+
+    # -------------------------------------------------------------------------
+    # General fallback
+    # -------------------------------------------------------------------------
+
+    records = deterministic_recall(
+        df,
+        question,
+    )
+
+    metrics = analyze_observations(
+        records,
+    )
+
+    if records.empty:
+        return {
+            "title": "No matching observations found",
+            "answer": (
+                "The local record does not contain observations that "
+                "clearly answer this question."
+            ),
+            "evidence": [],
+            "record_count": 0,
+            "date_range": "No matching records",
+            "boundary": (
+                "Try asking about speech, repetition, routines, medication, "
+                "episodes, improvements, or the previous appointment."
+            ),
+        }
+
+    return {
+        "title": "Summary of matching observations",
+        "answer": (
+            f"{len(records)} potentially relevant observation(s) were found "
+            f"between {format_date_range(records)}. "
+            f"The matching records include {category_summary(records)}, "
+            f"with severity levels of {severity_summary(records)}."
+        ),
+        "evidence": evidence_items(
+            records,
+            limit=5,
+        ),
+        "record_count": len(records),
+        "date_range": format_date_range(
+            records,
+        ),
+        "boundary": (
+            "This is a descriptive summary of caregiver-entered records."
+        ),
+    }
+
+
+def display_grounded_answer(
+    answer: dict[str, Any],
+) -> None:
+    evidence = answer.get(
+        "evidence",
+        [],
+    )
+
+    evidence_html = ""
+
+    if evidence:
+        evidence_html = (
+            '<div class="answer-evidence">'
+            '<div class="answer-evidence__heading">'
+            'Evidence used'
+            '</div>'
+            + "".join(
+                (
+                    '<div class="answer-evidence__item">'
+                    f'{escape(item)}'
+                    '</div>'
+                )
+                for item in evidence
+            )
+            + "</div>"
+        )
+
+    render(
+        f"""
+        <article class="answer-card">
+            <div class="answer-card__header">
+                <div>
+                    <div class="answer-card__eyebrow">
+                        NeuroBlackBox answer
+                    </div>
+
+                    <div class="answer-card__title">
+                        {escape(answer["title"])}
+                    </div>
+                </div>
+
+                <div class="answer-card__count">
+                    {escape(answer["record_count"])} records
+                </div>
+            </div>
+
+            <div class="answer-card__body">
+                <div class="answer-card__answer">
+                    {escape(answer["answer"])}
+                </div>
+
+                <div class="answer-meta">
+                    <div>
+                        <span>Evidence period</span>
+                        <strong>{escape(answer["date_range"])}</strong>
+                    </div>
+                </div>
+
+                {evidence_html}
+
+                <div class="answer-boundary">
+                    <strong>Interpretation boundary</strong>
+                    <br>
+                    {escape(answer["boundary"])}
+                </div>
+            </div>
+        </article>
+        """
+    )
 
 # =============================================================================
 # Supermemory result handling
@@ -2449,6 +3265,192 @@ render(
                 grid-template-columns: 1fr;
             }
         }
+        /* ================================================================
+   Final presentation corrections
+   ================================================================ */
+
+.answer-card {
+    display: block !important;
+    margin: 0.5rem 0 1.6rem 0 !important;
+    overflow: hidden !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    background: var(--white) !important;
+    box-shadow: 0 18px 42px rgba(15, 24, 34, 0.08) !important;
+}
+
+.answer-card__header {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 1rem !important;
+    padding: 1.15rem 1.2rem !important;
+    border-bottom: 1px solid var(--border) !important;
+    background: var(--canvas-blue) !important;
+}
+
+.answer-card__eyebrow {
+    margin-bottom: 0.35rem !important;
+    color: var(--blue) !important;
+    font-size: 0.65rem !important;
+    font-weight: 760 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+}
+
+.answer-card__title {
+    color: var(--ink) !important;
+    font-size: 1.08rem !important;
+    font-weight: 680 !important;
+    line-height: 1.35 !important;
+}
+
+.answer-card__count {
+    flex: 0 0 auto !important;
+    padding: 0.35rem 0.58rem !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 999px !important;
+    background: var(--white) !important;
+    color: var(--muted) !important;
+    font-size: 0.68rem !important;
+    font-weight: 630 !important;
+}
+
+.answer-card__body {
+    padding: 1.2rem !important;
+}
+
+.answer-card__answer {
+    color: var(--ink-soft) !important;
+    font-size: 0.94rem !important;
+    line-height: 1.72 !important;
+}
+
+.answer-meta {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    margin-top: 1rem !important;
+    padding: 0.8rem 0 !important;
+    border-top: 1px solid var(--border) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.answer-meta div {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 1rem !important;
+    font-size: 0.72rem !important;
+}
+
+.answer-meta span {
+    color: var(--muted) !important;
+}
+
+.answer-meta strong {
+    color: var(--ink) !important;
+    font-weight: 650 !important;
+}
+
+.answer-evidence {
+    margin-top: 1rem !important;
+}
+
+.answer-evidence__heading {
+    margin-bottom: 0.4rem !important;
+    color: var(--ink) !important;
+    font-size: 0.76rem !important;
+    font-weight: 680 !important;
+}
+
+.answer-evidence__item {
+    padding: 0.68rem 0 !important;
+    border-top: 1px solid var(--border) !important;
+    color: var(--ink-soft) !important;
+    font-size: 0.76rem !important;
+    line-height: 1.55 !important;
+}
+
+.answer-boundary {
+    margin-top: 1rem !important;
+    padding: 0.85rem !important;
+    border-radius: 7px !important;
+    background: var(--canvas) !important;
+    color: var(--muted) !important;
+    font-size: 0.72rem !important;
+    line-height: 1.55 !important;
+}
+
+/* Give the continuity stages room around their dividing lines */
+
+.problem-stage {
+    min-height: 285px !important;
+    padding: 2.35rem 2rem 2.5rem 2rem !important;
+}
+
+.problem-stage:first-child {
+    padding-left: 0 !important;
+}
+
+.problem-arrow {
+    min-width: 80px !important;
+}
+
+.problem-stage__number {
+    margin-bottom: 2.35rem !important;
+}
+
+.problem-stage__title {
+    margin-bottom: 0.9rem !important;
+}
+
+.problem-stage__copy {
+    max-width: 390px !important;
+    line-height: 1.72 !important;
+}
+
+/* Improve spacing inside the longitudinal-memory callout */
+
+.solution-callout {
+    margin-top: 1.8rem !important;
+    padding: 2.8rem 2.6rem !important;
+}
+
+.solution-callout__label {
+    margin-bottom: 1rem !important;
+}
+
+.solution-callout__title {
+    margin-bottom: 0.9rem !important;
+}
+
+.solution-callout__copy {
+    max-width: 980px !important;
+    line-height: 1.75 !important;
+}
+
+/* Prevent the clinical-visit node from overlapping the statistics */
+
+.memory-visual {
+    min-height: 590px !important;
+}
+
+.memory-node--visit {
+    bottom: 27% !important;
+}
+
+.memory-visual__stats {
+    bottom: 1.45rem !important;
+    padding-top: 0.35rem !important;
+}
+
+.memory-stat {
+    min-height: 76px !important;
+    padding-top: 0.9rem !important;
+}
+
+.memory-stat__label {
+    margin-bottom: 0.3rem !important;
+}
     </style>
     """
 )
@@ -3319,8 +4321,17 @@ with console_left:
     )
 
     if question.strip():
+        grounded_answer = generate_grounded_answer(
+            df,
+            question,
+        )
+
+        display_grounded_answer(
+            grounded_answer,
+        )
+
         with st.spinner(
-            "Searching the local longitudinal record..."
+            "Retrieving supporting source observations..."
         ):
             try:
                 semantic_results = search_observations(
