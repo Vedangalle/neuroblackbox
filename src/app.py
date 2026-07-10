@@ -3266,8 +3266,8 @@ render(
             }
         }
         /* ================================================================
-   Final presentation corrections
-   ================================================================ */
+        Final presentation corrections
+        ================================================================ */
 
 .answer-card {
     display: block !important;
@@ -3450,6 +3450,16 @@ render(
 
 .memory-stat__label {
     margin-bottom: 0.3rem !important;
+}
+.architecture-band .section-title,
+.architecture-proof__title {
+    color: #f4f7f9 !important;
+}
+
+.architecture-band .section-description,
+.architecture-band .section-index,
+.architecture-proof li {
+    color: #aeb9c4 !important;
 }
     </style>
     """
