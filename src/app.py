@@ -4,6 +4,8 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from memory_client import sdk_available, store_observation, search_observations
+
 
 DATA_PATH = Path("data/sample_observations.csv")
 
@@ -20,7 +22,10 @@ def load_data() -> pd.DataFrame:
         df = pd.read_csv(DATA_PATH)
         df["date"] = pd.to_datetime(df["date"])
         return df.sort_values("date")
-    return pd.DataFrame(columns=["date", "type", "severity", "source", "observation"])
+
+    return pd.DataFrame(
+        columns=["date", "type", "severity", "source", "observation"]
+    )
 
 
 def keyword_count(text: str, keywords: list[str]) -> int:
@@ -51,7 +56,10 @@ def analyze_changes(df: pd.DataFrame) -> dict:
         "episode_events": int((df["type"] == "episode").sum()),
         "high_severity_events": int((df["severity"] == "high").sum()),
         "pause_mentions": keyword_count(text, ["pause", "pauses", "paused"]),
-        "repetition_mentions": keyword_count(text, ["repeated", "same question", "same story", "asked the same"]),
+        "repetition_mentions": keyword_count(
+            text,
+            ["repeated", "repeat", "same question", "same story", "asked the same"],
+        ),
     }
 
 
@@ -79,10 +87,16 @@ def generate_doctor_summary(df: pd.DataFrame) -> str:
     summary.append("")
 
     if metrics["pause_mentions"] > 0:
-        summary.append(f"- Speech pauses or word-finding difficulty appeared {metrics['pause_mentions']} time(s).")
+        summary.append(
+            f"- Speech pauses or word-finding difficulty appeared "
+            f"{metrics['pause_mentions']} time(s)."
+        )
 
     if metrics["repetition_mentions"] > 0:
-        summary.append(f"- Repeated questions or repeated stories appeared {metrics['repetition_mentions']} time(s).")
+        summary.append(
+            f"- Repeated questions or repeated stories appeared "
+            f"{metrics['repetition_mentions']} time(s)."
+        )
 
     if not high_events.empty:
         summary.append("")
@@ -95,17 +109,73 @@ def generate_doctor_summary(df: pd.DataFrame) -> str:
     summary.append("Recent observations:")
     for _, row in recent_events.iterrows():
         date = row["date"].strftime("%b %d")
-        summary.append(f"- {date} ({row['type']}, {row['severity']}): {row['observation']}")
+        summary.append(
+            f"- {date} ({row['type']}, {row['severity']}): {row['observation']}"
+        )
 
     summary.append("")
     summary.append("Suggested doctor discussion questions:")
-    summary.append("- Are these changes consistent with normal aging, medication effects, stress, sleep issues, or something that needs evaluation?")
-    summary.append("- Should we track speech, repetition, navigation, medication adherence, or routine disruptions more formally?")
-    summary.append("- Are there screening tests or next steps you recommend based on these observations?")
+    summary.append(
+        "- Are these changes consistent with normal aging, medication effects, "
+        "stress, sleep issues, or something that needs evaluation?"
+    )
+    summary.append(
+        "- Should we track speech, repetition, navigation, medication adherence, "
+        "or routine disruptions more formally?"
+    )
+    summary.append(
+        "- Are there screening tests or next steps you recommend based on these observations?"
+    )
     summary.append("")
-    summary.append("Note: This summary is not a diagnosis. It is an organized caregiver observation record.")
+    summary.append(
+        "Note: This summary is not a diagnosis. "
+        "It is an organized caregiver observation record."
+    )
 
     return "\n".join(summary)
+
+
+def generate_change_brief(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "No observations available yet."
+
+    metrics = analyze_changes(df)
+
+    brief = []
+    brief.append("NeuroBlackBox 30-day change brief")
+    brief.append("")
+    brief.append("Signals detected:")
+    brief.append(f"- Speech-related observations: {metrics['speech_events']}")
+    brief.append(f"- Repetition-related observations: {metrics['repetition_events']}")
+    brief.append(f"- Routine disruption observations: {metrics['routine_events']}")
+    brief.append(f"- Higher-severity episodes: {metrics['high_severity_events']}")
+    brief.append(f"- Pause / word-finding mentions: {metrics['pause_mentions']}")
+    brief.append(f"- Repetition mentions: {metrics['repetition_mentions']}")
+    brief.append("")
+
+    if metrics["high_severity_events"] > 0:
+        brief.append("Highest-priority pattern:")
+        brief.append(
+            "- Higher-severity observations are present. These should be reviewed "
+            "with a clinician using the source timeline below."
+        )
+    elif metrics["repetition_mentions"] > 0 or metrics["pause_mentions"] > 0:
+        brief.append("Highest-priority pattern:")
+        brief.append(
+            "- Speech, repetition, or word-finding changes appear in the observation log."
+        )
+    else:
+        brief.append("Highest-priority pattern:")
+        brief.append("- No high-severity pattern detected in the current sample.")
+
+    brief.append("")
+    brief.append("Clinician-safe framing:")
+    brief.append(
+        "- This is not a diagnosis. It is a structured summary of observations "
+        "that may help guide a medical conversation."
+    )
+
+    return "\n".join(brief)
 
 
 def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
@@ -115,7 +185,12 @@ def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
         return df[df["type"].isin(["speech"])]
 
     if any(word in question_lower for word in ["repeat", "same question", "same story"]):
-        return df[df["type"].isin(["repetition"]) | df["observation"].str.lower().str.contains("repeat|same question|same story", na=False)]
+        return df[
+            df["type"].isin(["repetition"])
+            | df["observation"].str.lower().str.contains(
+                "repeat|same question|same story", na=False
+            )
+        ]
 
     if any(word in question_lower for word in ["routine", "medication", "walk", "kettle"]):
         return df[df["type"].isin(["routine", "episode"])]
@@ -123,7 +198,54 @@ def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
     if any(word in question_lower for word in ["bad episode", "episode", "confused", "high"]):
         return df[(df["type"] == "episode") | (df["severity"] == "high")]
 
+    if any(word in question_lower for word in ["doctor", "clinician", "bring up"]):
+        return df.tail(8)
+
     return df.tail(5)
+
+
+def display_supermemory_results(results: list) -> bool:
+    if not results:
+        return False
+
+    st.markdown("### Supermemory Local results")
+
+    for result in results:
+        content = None
+
+        if isinstance(result, dict):
+            content = (
+                result.get("content")
+                or result.get("document")
+                or result.get("text")
+                or str(result)
+            )
+        else:
+            content = (
+                getattr(result, "content", None)
+                or getattr(result, "document", None)
+                or getattr(result, "text", None)
+                or str(result)
+            )
+
+        st.success(str(content))
+
+    return True
+
+
+def display_csv_memory_cards(recalled: pd.DataFrame) -> None:
+    st.markdown("### Relevant memory cards")
+
+    if recalled.empty:
+        st.info("No relevant observations found yet.")
+        return
+
+    for _, row in recalled.iterrows():
+        st.info(
+            f"**{row['date'].strftime('%b %d, %Y')} — "
+            f"{row['type']} / {row['severity']}**\n\n"
+            f"{row['observation']}"
+        )
 
 
 df = load_data()
@@ -132,9 +254,15 @@ st.title("NeuroBlackBox")
 st.caption("Local memory for cognitive change. Observation support only, not diagnosis.")
 
 st.warning(
-    "NeuroBlackBox does not diagnose, treat, or predict Alzheimer’s, dementia, or any medical condition. "
-    "It organizes caregiver observations so families can discuss concrete changes with a clinician."
+    "NeuroBlackBox does not diagnose, treat, or predict Alzheimer’s, dementia, "
+    "or any medical condition. It organizes caregiver observations so families "
+    "can discuss concrete changes with a clinician."
 )
+
+if sdk_available():
+    st.success("Supermemory SDK loaded. Local memory storage is available.")
+else:
+    st.error("Supermemory SDK not available. Using CSV fallback only.")
 
 left, right = st.columns([1.1, 1.4])
 
@@ -158,6 +286,14 @@ with left:
 
         if submitted:
             if observation.strip():
+                memory_row = {
+                    "date": str(observation_date),
+                    "type": observation_type,
+                    "severity": severity,
+                    "source": source,
+                    "observation": observation.strip(),
+                }
+
                 new_row = pd.DataFrame(
                     [
                         {
@@ -169,9 +305,17 @@ with left:
                         }
                     ]
                 )
+
                 updated = pd.concat([df, new_row], ignore_index=True).sort_values("date")
                 updated.to_csv(DATA_PATH, index=False)
-                st.success("Observation saved. Refreshing memory timeline.")
+
+                stored_in_memory = store_observation(memory_row)
+
+                if stored_in_memory:
+                    st.success("Observation saved to CSV and Supermemory Local.")
+                else:
+                    st.warning("Observation saved to CSV, but Supermemory Local storage failed.")
+
                 st.rerun()
             else:
                 st.error("Please enter an observation.")
@@ -183,32 +327,50 @@ with left:
     )
 
     if question:
-        recalled = simple_recall(df, question)
-        st.markdown("### Relevant memory cards")
-        for _, row in recalled.iterrows():
-            st.info(
-                f"**{row['date'].strftime('%b %d, %Y')}** — "
-                f"{row['type']} / {row['severity']}\n\n{row['observation']}"
-            )
+        supermemory_results = search_observations(question, limit=5)
+
+        used_supermemory = display_supermemory_results(supermemory_results)
+
+        if not used_supermemory:
+            st.caption("No Supermemory search result returned. Showing CSV fallback recall.")
+            recalled = simple_recall(df, question)
+            display_csv_memory_cards(recalled)
 
 with right:
     st.subheader("Cognitive change dashboard")
 
     metrics = analyze_changes(df)
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Observations", metrics["total_observations"])
     col2.metric("Speech events", metrics["speech_events"])
     col3.metric("Repetition events", metrics["repetition_events"])
     col4.metric("High severity", metrics["high_severity_events"])
 
+    st.markdown("### Signal counters")
+    signal_col1, signal_col2 = st.columns(2)
+    signal_col1.metric("Pause / word-finding mentions", metrics["pause_mentions"])
+    signal_col2.metric("Repeated question/story mentions", metrics["repetition_mentions"])
+
     st.markdown("### Timeline")
     timeline = df.copy()
     timeline["date"] = timeline["date"].dt.strftime("%b %d, %Y")
     st.dataframe(
         timeline[["date", "type", "severity", "source", "observation"]],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
+    st.markdown("### 30-day change brief")
+    st.code(generate_change_brief(df), language="markdown")
+
     st.markdown("### Doctor-prep summary")
-    st.code(generate_doctor_summary(df), language="markdown")
+    doctor_summary = generate_doctor_summary(df)
+    st.code(doctor_summary, language="markdown")
+
+    st.download_button(
+        label="Download doctor-prep summary",
+        data=doctor_summary,
+        file_name="neuroblackbox_doctor_prep_summary.md",
+        mime="text/markdown",
+    )
