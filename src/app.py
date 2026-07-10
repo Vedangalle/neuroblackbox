@@ -16,10 +16,16 @@ from memory_client import (
 
 
 # =============================================================================
-# Application configuration
+# Configuration
 # =============================================================================
 
 APP_NAME = "NeuroBlackBox"
+
+APP_DESCRIPTION = (
+    "Longitudinal local memory for cognitive-care observations "
+    "and clinician preparation."
+)
+
 DATA_PATH = Path("data/sample_observations.csv")
 
 OBSERVATION_COLUMNS = [
@@ -39,6 +45,9 @@ OBSERVATION_TYPES = [
     "navigation",
     "mood",
     "sleep",
+    "appointment",
+    "intervention",
+    "improvement",
     "other",
 ]
 
@@ -49,7 +58,7 @@ SEVERITY_LEVELS = [
 ]
 
 st.set_page_config(
-    page_title="NeuroBlackBox | Longitudinal Memory for Cognitive Care",
+    page_title="NeuroBlackBox | Cognitive Care Memory Infrastructure",
     page_icon="◉",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -57,7 +66,7 @@ st.set_page_config(
 
 
 # =============================================================================
-# Utilities
+# Generic utilities
 # =============================================================================
 
 def escape(value: Any) -> str:
@@ -66,22 +75,26 @@ def escape(value: Any) -> str:
 
 def render(markup: str) -> None:
     """
-    Render custom HTML using Streamlit's native HTML renderer.
+    Render HTML directly with Streamlit's HTML renderer.
 
-    This avoids the Markdown parser incorrectly displaying HTML as code.
+    This prevents custom HTML from being interpreted as Markdown code.
     """
     st.html(markup)
 
 
 def empty_observation_frame() -> pd.DataFrame:
-    return pd.DataFrame(columns=OBSERVATION_COLUMNS)
+    return pd.DataFrame(
+        columns=OBSERVATION_COLUMNS,
+    )
 
 
 # =============================================================================
-# Data access
+# Data loading and persistence
 # =============================================================================
 
-def normalize_observation_frame(df: pd.DataFrame) -> pd.DataFrame:
+def normalize_observation_frame(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
     if df.empty:
         return empty_observation_frame()
 
@@ -91,14 +104,18 @@ def normalize_observation_frame(df: pd.DataFrame) -> pd.DataFrame:
         if column not in normalized.columns:
             normalized[column] = ""
 
-    normalized = normalized[OBSERVATION_COLUMNS]
+    normalized = normalized[
+        OBSERVATION_COLUMNS
+    ]
 
     normalized["date"] = pd.to_datetime(
         normalized["date"],
         errors="coerce",
     )
 
-    normalized = normalized.dropna(subset=["date"])
+    normalized = normalized.dropna(
+        subset=["date"],
+    )
 
     for column in [
         "type",
@@ -113,28 +130,45 @@ def normalize_observation_frame(df: pd.DataFrame) -> pd.DataFrame:
             .str.strip()
         )
 
-    normalized["type"] = normalized["type"].str.lower()
-    normalized["severity"] = normalized["severity"].str.lower()
+    normalized["type"] = (
+        normalized["type"]
+        .str.lower()
+    )
+
+    normalized["severity"] = (
+        normalized["severity"]
+        .str.lower()
+    )
 
     return normalized.sort_values(
-        "date",
+        by="date",
         ascending=True,
-    ).reset_index(drop=True)
+    ).reset_index(
+        drop=True,
+    )
 
 
-@st.cache_data(show_spinner=False)
-def load_data(modified_time: float | None = None) -> pd.DataFrame:
+@st.cache_data(
+    show_spinner=False,
+)
+def load_data(
+    modified_time: float | None = None,
+) -> pd.DataFrame:
     del modified_time
 
     if not DATA_PATH.exists():
         return empty_observation_frame()
 
     try:
-        frame = pd.read_csv(DATA_PATH)
+        frame = pd.read_csv(
+            DATA_PATH,
+        )
     except Exception:
         return empty_observation_frame()
 
-    return normalize_observation_frame(frame)
+    return normalize_observation_frame(
+        frame,
+    )
 
 
 def get_data() -> pd.DataFrame:
@@ -144,16 +178,22 @@ def get_data() -> pd.DataFrame:
         else None
     )
 
-    return load_data(modified_time)
+    return load_data(
+        modified_time,
+    )
 
 
-def save_data(df: pd.DataFrame) -> None:
+def save_data(
+    df: pd.DataFrame,
+) -> None:
     DATA_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    normalized = normalize_observation_frame(df)
+    normalized = normalize_observation_frame(
+        df,
+    )
 
     normalized.to_csv(
         DATA_PATH,
@@ -175,12 +215,16 @@ def keyword_count(
     normalized = text.lower()
 
     return sum(
-        normalized.count(keyword.lower())
+        normalized.count(
+            keyword.lower(),
+        )
         for keyword in keywords
     )
 
 
-def combined_observation_text(df: pd.DataFrame) -> str:
+def combined_observation_text(
+    df: pd.DataFrame,
+) -> str:
     if df.empty:
         return ""
 
@@ -192,7 +236,9 @@ def combined_observation_text(df: pd.DataFrame) -> str:
     )
 
 
-def analyze_observations(df: pd.DataFrame) -> dict[str, int]:
+def analyze_observations(
+    df: pd.DataFrame,
+) -> dict[str, int]:
     if df.empty:
         return {
             "total": 0,
@@ -202,22 +248,52 @@ def analyze_observations(df: pd.DataFrame) -> dict[str, int]:
             "episode": 0,
             "medication": 0,
             "navigation": 0,
+            "appointment": 0,
+            "intervention": 0,
+            "improvement": 0,
             "high": 0,
             "pause_mentions": 0,
             "repetition_mentions": 0,
         }
 
-    text = combined_observation_text(df)
+    text = combined_observation_text(
+        df,
+    )
 
     return {
-        "total": int(len(df)),
-        "speech": int((df["type"] == "speech").sum()),
-        "repetition": int((df["type"] == "repetition").sum()),
-        "routine": int((df["type"] == "routine").sum()),
-        "episode": int((df["type"] == "episode").sum()),
-        "medication": int((df["type"] == "medication").sum()),
-        "navigation": int((df["type"] == "navigation").sum()),
-        "high": int((df["severity"] == "high").sum()),
+        "total": int(
+            len(df)
+        ),
+        "speech": int(
+            (df["type"] == "speech").sum()
+        ),
+        "repetition": int(
+            (df["type"] == "repetition").sum()
+        ),
+        "routine": int(
+            (df["type"] == "routine").sum()
+        ),
+        "episode": int(
+            (df["type"] == "episode").sum()
+        ),
+        "medication": int(
+            (df["type"] == "medication").sum()
+        ),
+        "navigation": int(
+            (df["type"] == "navigation").sum()
+        ),
+        "appointment": int(
+            (df["type"] == "appointment").sum()
+        ),
+        "intervention": int(
+            (df["type"] == "intervention").sum()
+        ),
+        "improvement": int(
+            (df["type"] == "improvement").sum()
+        ),
+        "high": int(
+            (df["severity"] == "high").sum()
+        ),
         "pause_mentions": keyword_count(
             text,
             [
@@ -256,35 +332,55 @@ def latest_high_severity_episode(
     if candidates.empty:
         return None
 
-    return candidates.sort_values("date").iloc[-1]
+    return candidates.sort_values(
+        "date",
+    ).iloc[-1]
 
 
 def before_episode_window(
     df: pd.DataFrame,
     days_before: int = 10,
 ) -> tuple[pd.Series | None, pd.DataFrame]:
-    episode = latest_high_severity_episode(df)
+    episode = latest_high_severity_episode(
+        df,
+    )
 
     if episode is None:
-        return None, empty_observation_frame()
+        return (
+            None,
+            empty_observation_frame(),
+        )
 
-    episode_date = pd.Timestamp(episode["date"])
-    start_date = episode_date - timedelta(days=days_before)
+    episode_date = pd.Timestamp(
+        episode["date"],
+    )
+
+    start_date = episode_date - timedelta(
+        days=days_before,
+    )
 
     window = df[
         (df["date"] >= start_date)
         & (df["date"] < episode_date)
     ].copy()
 
-    return episode, window.sort_values("date")
+    return (
+        episode,
+        window.sort_values("date"),
+    )
 
 
-def thirty_day_window(df: pd.DataFrame) -> pd.DataFrame:
+def thirty_day_window(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
     end_date = df["date"].max()
-    start_date = end_date - timedelta(days=30)
+
+    start_date = end_date - timedelta(
+        days=30,
+    )
 
     return df[
         (df["date"] >= start_date)
@@ -292,9 +388,13 @@ def thirty_day_window(df: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
-def format_observation(row: pd.Series) -> str:
-    observation_date = pd.Timestamp(row["date"]).strftime(
-        "%b %d, %Y"
+def format_observation(
+    row: pd.Series,
+) -> str:
+    observation_date = pd.Timestamp(
+        row["date"],
+    ).strftime(
+        "%b %d, %Y",
     )
 
     return (
@@ -306,7 +406,7 @@ def format_observation(row: pd.Series) -> str:
 
 
 # =============================================================================
-# Generated outputs
+# Generated analysis outputs
 # =============================================================================
 
 def generate_before_episode_analysis(
@@ -326,14 +426,25 @@ def generate_before_episode_analysis(
             "'episode' with severity set to 'high'."
         )
 
-    episode_date = pd.Timestamp(episode["date"])
-    start_date = episode_date - timedelta(days=days_before)
+    episode_date = pd.Timestamp(
+        episode["date"],
+    )
+
+    start_date = episode_date - timedelta(
+        days=days_before,
+    )
 
     lines = [
         "BEFORE-EPISODE RECONSTRUCTION",
         "",
-        f"Index episode: {episode_date.strftime('%b %d, %Y')}",
-        f"Episode record: {episode['observation']}",
+        (
+            "Index episode: "
+            f"{episode_date.strftime('%b %d, %Y')}"
+        ),
+        (
+            "Episode record: "
+            f"{episode['observation']}"
+        ),
         "",
         (
             "Review interval: "
@@ -346,18 +457,26 @@ def generate_before_episode_analysis(
     if window.empty:
         lines.extend(
             [
-                "No observations were recorded during this interval.",
+                (
+                    "No observations were recorded "
+                    "during this interval."
+                ),
                 "",
                 (
-                    "Important limitation: absence of recorded observations "
-                    "does not establish absence of preceding changes."
+                    "Important limitation: absence of recorded "
+                    "observations does not establish absence of "
+                    "preceding changes."
                 ),
             ]
         )
 
-        return "\n".join(lines)
+        return "\n".join(
+            lines,
+        )
 
-    metrics = analyze_observations(window)
+    metrics = analyze_observations(
+        window,
+    )
 
     lines.extend(
         [
@@ -367,46 +486,73 @@ def generate_before_episode_analysis(
             f"- Routine observations: {metrics['routine']}",
             f"- Medication observations: {metrics['medication']}",
             f"- Navigation observations: {metrics['navigation']}",
-            f"- Pause or word-finding mentions: {metrics['pause_mentions']}",
-            f"- Repetition-related mentions: {metrics['repetition_mentions']}",
+            (
+                "- Pause or word-finding mentions: "
+                f"{metrics['pause_mentions']}"
+            ),
+            (
+                "- Repetition-related mentions: "
+                f"{metrics['repetition_mentions']}"
+            ),
             "",
             "Source observations:",
         ]
     )
 
     for _, row in window.iterrows():
-        lines.append(f"- {format_observation(row)}")
+        lines.append(
+            f"- {format_observation(row)}"
+        )
 
     lines.extend(
         [
             "",
             "Review boundary:",
             (
-                "This reconstruction organizes caregiver-entered observations. "
-                "It does not establish causation, diagnosis, disease progression, "
-                "or predictive risk."
+                "This reconstruction organizes caregiver-entered "
+                "observations. It does not establish causation, "
+                "diagnosis, disease progression, or predictive risk."
             ),
         ]
     )
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines,
+    )
 
 
-def generate_thirty_day_brief(df: pd.DataFrame) -> str:
-    recent = thirty_day_window(df)
+def generate_thirty_day_brief(
+    df: pd.DataFrame,
+) -> str:
+    recent = thirty_day_window(
+        df,
+    )
 
     if recent.empty:
-        return "No observations are available for the current review period."
+        return (
+            "No observations are available "
+            "for the current review period."
+        )
 
-    metrics = analyze_observations(recent)
+    metrics = analyze_observations(
+        recent,
+    )
 
-    first_date = recent["date"].min().strftime("%b %d, %Y")
-    last_date = recent["date"].max().strftime("%b %d, %Y")
+    first_date = recent["date"].min().strftime(
+        "%b %d, %Y",
+    )
+
+    last_date = recent["date"].max().strftime(
+        "%b %d, %Y",
+    )
 
     lines = [
         "THIRTY-DAY OBSERVATION BRIEF",
         "",
-        f"Review period: {first_date} to {last_date}",
+        (
+            f"Review period: "
+            f"{first_date} to {last_date}"
+        ),
         "",
         "Observation-log composition:",
         f"- Total observations: {metrics['total']}",
@@ -416,17 +562,26 @@ def generate_thirty_day_brief(df: pd.DataFrame) -> str:
         f"- Medication observations: {metrics['medication']}",
         f"- Navigation observations: {metrics['navigation']}",
         f"- High-severity observations: {metrics['high']}",
-        f"- Pause or word-finding mentions: {metrics['pause_mentions']}",
-        f"- Repetition-related mentions: {metrics['repetition_mentions']}",
+        (
+            "- Pause or word-finding mentions: "
+            f"{metrics['pause_mentions']}"
+        ),
+        (
+            "- Repetition-related mentions: "
+            f"{metrics['repetition_mentions']}"
+        ),
         "",
         "Interpretation boundary:",
         (
-            "These values summarize the observation log. They are not clinical "
-            "scores and do not measure cognitive function or disease progression."
+            "These values summarize the observation log. "
+            "They are not clinical scores and do not measure "
+            "cognitive function or disease progression."
         ),
     ]
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines,
+    )
 
 
 def generate_clinician_preparation_summary(
@@ -435,21 +590,37 @@ def generate_clinician_preparation_summary(
     if df.empty:
         return "No observations are available."
 
-    metrics = analyze_observations(df)
+    metrics = analyze_observations(
+        df,
+    )
 
-    first_date = df["date"].min().strftime("%b %d, %Y")
-    last_date = df["date"].max().strftime("%b %d, %Y")
+    first_date = df["date"].min().strftime(
+        "%b %d, %Y",
+    )
+
+    last_date = df["date"].max().strftime(
+        "%b %d, %Y",
+    )
 
     high_severity = df[
         df["severity"] == "high"
-    ].sort_values("date")
+    ].sort_values(
+        "date",
+    )
 
-    recent = df.sort_values("date").tail(6)
+    recent = df.sort_values(
+        "date",
+    ).tail(
+        6,
+    )
 
     lines = [
         "CAREGIVER-CLINICIAN PREPARATION SUMMARY",
         "",
-        f"Observation period: {first_date} to {last_date}",
+        (
+            f"Observation period: "
+            f"{first_date} to {last_date}"
+        ),
         "",
         "Recorded observation categories:",
         f"- Total records: {metrics['total']}",
@@ -470,7 +641,9 @@ def generate_clinician_preparation_summary(
         )
 
         for _, row in high_severity.iterrows():
-            lines.append(f"- {format_observation(row)}")
+            lines.append(
+                f"- {format_observation(row)}"
+            )
 
     lines.extend(
         [
@@ -480,23 +653,26 @@ def generate_clinician_preparation_summary(
     )
 
     for _, row in recent.iterrows():
-        lines.append(f"- {format_observation(row)}")
+        lines.append(
+            f"- {format_observation(row)}"
+        )
 
     lines.extend(
         [
             "",
             "Potential questions for clinical discussion:",
             (
-                "- Which symptoms, routines, medication effects, sleep changes, "
-                "or environmental factors should be monitored more systematically?"
+                "- Which symptoms, routines, medication effects, "
+                "sleep changes, or environmental factors should "
+                "be monitored more systematically?"
             ),
             (
-                "- Are the recorded changes sufficiently concerning to justify "
-                "formal assessment or additional investigation?"
+                "- Are the recorded changes sufficiently concerning "
+                "to justify formal assessment or additional investigation?"
             ),
             (
-                "- Which recommendations from this visit should the family record "
-                "and review before the next appointment?"
+                "- Which recommendations from this visit should the "
+                "family record and review before the next appointment?"
             ),
             "",
             "Safety boundary:",
@@ -508,11 +684,13 @@ def generate_clinician_preparation_summary(
         ]
     )
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines,
+    )
 
 
 # =============================================================================
-# Retrieval
+# Retrieval fallback
 # =============================================================================
 
 def deterministic_recall(
@@ -534,7 +712,9 @@ def deterministic_recall(
             "before last bad episode",
         ]
     ):
-        _, window = before_episode_window(df)
+        _, window = before_episode_window(
+            df,
+        )
 
         return window
 
@@ -617,9 +797,27 @@ def deterministic_recall(
     if any(
         phrase in query
         for phrase in [
+            "appointment",
+            "last visit",
+            "previous visit",
+        ]
+    ):
+        return df[
+            df["type"].isin(
+                [
+                    "appointment",
+                    "intervention",
+                    "improvement",
+                    "medication",
+                ]
+            )
+        ]
+
+    if any(
+        phrase in query
+        for phrase in [
             "routine",
             "daily activity",
-            "appointment",
         ]
     ):
         return df[
@@ -645,22 +843,44 @@ def deterministic_recall(
             | (df["type"] == "episode")
         ]
 
-    return df.sort_values("date").tail(6)
+    return df.sort_values(
+        "date",
+    ).tail(
+        6,
+    )
 
 
-def extract_result_content(result: Any) -> str:
-    if isinstance(result, dict):
-        direct_content = result.get("content")
+# =============================================================================
+# Supermemory result handling
+# =============================================================================
+
+def extract_result_content(
+    result: Any,
+) -> str:
+    if isinstance(
+        result,
+        dict,
+    ):
+        direct_content = result.get(
+            "content",
+        )
 
         if direct_content:
-            return str(direct_content)
+            return str(
+                direct_content,
+            )
 
-        chunks = result.get("chunks") or []
+        chunks = result.get(
+            "chunks",
+        ) or []
 
         if chunks:
             first_chunk = chunks[0]
 
-            if isinstance(first_chunk, dict):
+            if isinstance(
+                first_chunk,
+                dict,
+            ):
                 return str(
                     first_chunk.get(
                         "content",
@@ -676,7 +896,9 @@ def extract_result_content(result: Any) -> str:
                 )
             )
 
-        return str(result)
+        return str(
+            result,
+        )
 
     chunks = getattr(
         result,
@@ -707,16 +929,26 @@ def extract_result_content(result: Any) -> str:
         )
 
         if value:
-            return str(value)
+            return str(
+                value,
+            )
 
-    return str(result)
+    return str(
+        result,
+    )
 
 
-def extract_result_score(result: Any) -> str:
+def extract_result_score(
+    result: Any,
+) -> str:
     raw_score = (
         result.get("score")
         if isinstance(result, dict)
-        else getattr(result, "score", None)
+        else getattr(
+            result,
+            "score",
+            None,
+        )
     )
 
     if raw_score is None:
@@ -724,29 +956,41 @@ def extract_result_score(result: Any) -> str:
 
     try:
         return f"{float(raw_score):.2f}"
-    except (TypeError, ValueError):
-        return str(raw_score)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return str(
+            raw_score,
+        )
 
 
-def clean_memory_content(content: str) -> str:
+def clean_memory_content(
+    content: str,
+) -> str:
     cleaned = content
 
     for prefix in [
         "NeuroBlackBox caregiver observation. ",
         "Patient: Eleanor. ",
     ]:
-        cleaned = cleaned.replace(prefix, "")
+        cleaned = cleaned.replace(
+            prefix,
+            "",
+        )
 
     return cleaned.strip()
 
 
-def display_memory_results(results: list[Any]) -> bool:
+def display_memory_results(
+    results: list[Any],
+) -> bool:
     if not results:
         return False
 
     render(
         """
-        <div class="nbb-result-heading">
+        <div class="retrieval-heading">
             Retrieved longitudinal records
         </div>
         """
@@ -754,18 +998,24 @@ def display_memory_results(results: list[Any]) -> bool:
 
     for result in results:
         content = clean_memory_content(
-            extract_result_content(result)
+            extract_result_content(
+                result,
+            )
         )
 
-        score = extract_result_score(result)
+        score = extract_result_score(
+            result,
+        )
 
         render(
             f"""
-            <article class="nbb-memory-result">
-                <div class="nbb-memory-result__meta">
-                    Supermemory Local · semantic relevance {escape(score)}
+            <article class="memory-result">
+                <div class="memory-result__header">
+                    <span>Source observation</span>
+                    <span>Relevance {escape(score)}</span>
                 </div>
-                <div class="nbb-memory-result__content">
+
+                <div class="memory-result__content">
                     {escape(content)}
                 </div>
             </article>
@@ -791,7 +1041,9 @@ def initialize_session_state() -> None:
             st.session_state[key] = value
 
 
-def set_query(value: str) -> None:
+def set_query(
+    value: str,
+) -> None:
     st.session_state["query"] = value
 
 
@@ -799,21 +1051,38 @@ initialize_session_state()
 
 
 # =============================================================================
-# Current application state
+# Current state
 # =============================================================================
 
 df = get_data()
-metrics = analyze_observations(df)
+
+metrics = analyze_observations(
+    df,
+)
 
 supermemory_available = sdk_available()
 
-before_episode_analysis = generate_before_episode_analysis(df)
-thirty_day_brief = generate_thirty_day_brief(df)
-clinician_summary = generate_clinician_preparation_summary(df)
+memory_status = (
+    "Online"
+    if supermemory_available
+    else "Fallback"
+)
+
+before_episode_analysis = generate_before_episode_analysis(
+    df,
+)
+
+thirty_day_brief = generate_thirty_day_brief(
+    df,
+)
+
+clinician_summary = generate_clinician_preparation_summary(
+    df,
+)
 
 
 # =============================================================================
-# Global styling
+# Styling
 # =============================================================================
 
 render(
@@ -822,31 +1091,35 @@ render(
         :root {
             color-scheme: light;
 
-            --ink: #10141a;
-            --ink-soft: #313842;
-            --muted: #68717d;
-            --muted-light: #9098a3;
+            --ink: #0b1016;
+            --ink-soft: #2d3743;
+            --muted: #667281;
+            --faint: #9099a4;
 
-            --paper: #ffffff;
-            --paper-soft: #f6f7f9;
-            --paper-blue: #f2f6fa;
-            --paper-dark: #10151c;
+            --white: #ffffff;
+            --canvas: #f7f8fa;
+            --canvas-blue: #f1f5f8;
+            --canvas-green: #eff6f2;
+            --dark: #0d131a;
+            --dark-soft: #151e28;
 
-            --line: #dfe3e8;
-            --line-dark: #2a323d;
+            --border: #dde2e7;
+            --border-dark: #293541;
 
-            --blue: #375e7e;
-            --blue-dark: #1d3a52;
-            --blue-soft: #dce9f2;
+            --blue: #315f82;
+            --blue-dark: #1b3b53;
+            --blue-light: #dbe9f2;
 
-            --green: #2c6a4e;
-            --green-soft: #e9f4ee;
+            --green: #2e7253;
+            --green-light: #dceee4;
 
-            --orange: #9c6525;
-            --orange-soft: #f7efe4;
+            --amber: #9b682a;
 
-            --max-width: 1420px;
-            --reading-width: 760px;
+            --max-width: 1480px;
+        }
+
+        html {
+            scroll-behavior: smooth;
         }
 
         html,
@@ -854,7 +1127,7 @@ render(
         .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
-            background: var(--paper) !important;
+            background: var(--white) !important;
             color: var(--ink) !important;
         }
 
@@ -874,16 +1147,25 @@ render(
         }
 
         [data-testid="stHeader"] {
-            background: rgba(255, 255, 255, 0.96) !important;
-            border-bottom: 1px solid var(--line) !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            background: transparent !important;
+        }
+
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"],
+        [data-testid="stStatusWidget"],
+        #MainMenu,
+        footer {
+            display: none !important;
         }
 
         .block-container {
             width: 100% !important;
             max-width: var(--max-width) !important;
-            padding-top: 1rem !important;
+            padding-top: 0 !important;
             padding-right: 3rem !important;
-            padding-bottom: 7rem !important;
+            padding-bottom: 5rem !important;
             padding-left: 3rem !important;
         }
 
@@ -891,417 +1173,579 @@ render(
         h2,
         h3,
         h4,
-        h5,
-        p {
-            color: var(--ink);
-        }
-
-        h1,
-        h2,
-        h3,
-        h4,
         h5 {
-            letter-spacing: -0.035em;
+            color: var(--ink) !important;
+            letter-spacing: -0.045em;
         }
 
         h2 {
-            font-size: 2.15rem !important;
-            font-weight: 660 !important;
+            font-size: 2.1rem !important;
         }
 
         h3 {
-            font-size: 1.35rem !important;
-            font-weight: 650 !important;
+            font-size: 1.3rem !important;
         }
 
         hr {
             border: 0 !important;
-            border-top: 1px solid var(--line) !important;
-            margin: 5rem 0 !important;
+            border-top: 1px solid var(--border) !important;
+            margin: 5.5rem 0 !important;
         }
 
-        .nbb-nav {
+        a {
+            text-decoration: none;
+        }
+
+        .site-nav {
+            position: sticky;
+            z-index: 100;
+            top: 0;
             display: grid;
-            grid-template-columns: 1fr auto;
+            grid-template-columns: auto 1fr auto;
             align-items: center;
-            min-height: 72px;
-            border-bottom: 1px solid var(--line);
+            min-height: 76px;
+            border-bottom: 1px solid rgba(221, 226, 231, 0.9);
+            background: rgba(255, 255, 255, 0.93);
+            backdrop-filter: blur(18px);
         }
 
-        .nbb-nav__brand {
+        .site-brand {
             display: flex;
             align-items: center;
             gap: 0.75rem;
+            color: var(--ink);
+            font-size: 0.96rem;
             font-weight: 720;
-            font-size: 0.95rem;
-            letter-spacing: -0.02em;
         }
 
-        .nbb-nav__symbol {
+        .site-mark {
             position: relative;
-            width: 24px;
-            height: 24px;
+            width: 25px;
+            height: 25px;
             border: 1.5px solid var(--ink);
             border-radius: 50%;
         }
 
-        .nbb-nav__symbol::before,
-        .nbb-nav__symbol::after {
+        .site-mark::before {
             content: "";
             position: absolute;
-            border-radius: 50%;
-        }
-
-        .nbb-nav__symbol::before {
             width: 8px;
             height: 8px;
-            left: 6.5px;
-            top: 6.5px;
+            left: 7px;
+            top: 7px;
+            border-radius: 50%;
             background: var(--blue);
         }
 
-        .nbb-nav__symbol::after {
-            width: 3px;
-            height: 3px;
-            left: 16px;
-            top: 3px;
+        .site-mark::after {
+            content: "";
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            right: 2px;
+            top: 2px;
+            border-radius: 50%;
             background: var(--green);
         }
 
-        .nbb-nav__links {
+        .site-links {
             display: flex;
-            gap: 1.6rem;
-            color: var(--muted);
-            font-size: 0.84rem;
+            justify-content: center;
+            gap: 1.7rem;
         }
 
-        .nbb-hero {
+        .site-links a {
+            color: var(--muted);
+            font-size: 0.82rem;
+            transition:
+                color 160ms ease,
+                transform 160ms ease;
+        }
+
+        .site-links a:hover {
+            color: var(--ink);
+            transform: translateY(-1px);
+        }
+
+        .nav-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 0 1rem;
+            border-radius: 6px;
+            background: var(--ink);
+            color: var(--white);
+            font-size: 0.79rem;
+            font-weight: 650;
+            transition:
+                transform 160ms ease,
+                background 160ms ease;
+        }
+
+        .nav-action:hover {
+            background: var(--blue-dark);
+            transform: translateY(-1px);
+        }
+
+        .hero {
             display: grid;
             grid-template-columns:
                 minmax(0, 1.35fr)
-                minmax(380px, 0.65fr);
+                minmax(390px, 0.65fr);
             gap: 5rem;
             align-items: center;
-            min-height: 700px;
-            padding: 5.5rem 0;
+            min-height: 760px;
+            padding: 5.4rem 0 4.5rem 0;
         }
 
-        .nbb-eyebrow {
-            margin-bottom: 1.5rem;
+        .eyebrow {
+            margin-bottom: 1.4rem;
             color: var(--blue);
             font-size: 0.72rem;
             font-weight: 760;
-            letter-spacing: 0.13em;
+            letter-spacing: 0.135em;
             text-transform: uppercase;
         }
 
-        .nbb-hero__title {
-            max-width: 920px;
+        .hero-title {
+            max-width: 940px;
             margin: 0;
             color: var(--ink);
-            font-size: clamp(4.25rem, 7vw, 7.8rem);
+            font-size: clamp(4rem, 6.5vw, 7.15rem);
             font-weight: 690;
             line-height: 0.94;
             letter-spacing: -0.072em;
         }
 
-        .nbb-hero__title span {
+        .hero-title span {
             color: var(--blue);
         }
 
-        .nbb-hero__summary {
-            max-width: 790px;
-            margin: 2.2rem 0 0 0;
+        .hero-lead {
+            max-width: 830px;
+            margin: 2rem 0 0 0;
             color: var(--ink-soft);
-            font-size: 1.25rem;
-            line-height: 1.65;
+            font-size: 1.22rem;
+            line-height: 1.68;
         }
 
-        .nbb-hero__support {
+        .hero-support {
             max-width: 760px;
-            margin: 1.2rem 0 0 0;
+            margin-top: 1rem;
             color: var(--muted);
-            font-size: 0.97rem;
+            font-size: 0.95rem;
             line-height: 1.72;
         }
 
-        .nbb-hero__tags {
+        .hero-actions {
             display: flex;
             flex-wrap: wrap;
-            gap: 0.75rem 1.2rem;
+            gap: 0.8rem;
             margin-top: 2rem;
-            color: var(--ink-soft);
+        }
+
+        .button-primary,
+        .button-secondary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 48px;
+            padding: 0 1.25rem;
+            border-radius: 7px;
             font-size: 0.86rem;
+            font-weight: 650;
+            transition:
+                transform 160ms ease,
+                box-shadow 160ms ease,
+                border-color 160ms ease;
         }
 
-        .nbb-hero__tags span::before {
-            content: "—";
-            margin-right: 0.45rem;
-            color: var(--muted-light);
+        .button-primary {
+            background: var(--ink);
+            color: var(--white);
+            box-shadow: 0 12px 30px rgba(11, 16, 22, 0.13);
         }
 
-        .nbb-system-panel {
+        .button-secondary {
+            border: 1px solid var(--border);
+            background: var(--white);
+            color: var(--ink);
+        }
+
+        .button-primary:hover,
+        .button-secondary:hover {
+            transform: translateY(-2px);
+        }
+
+        .button-secondary:hover {
+            border-color: var(--ink);
+        }
+
+        .proof-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.8rem 1.3rem;
+            margin-top: 1.7rem;
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .proof-row span {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .proof-row span::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .memory-visual {
             position: relative;
-            min-height: 510px;
-            padding: 2rem;
+            min-height: 540px;
             overflow: hidden;
-            border-radius: 24px;
-            background: var(--paper-dark);
-            color: #ffffff;
+            border: 1px solid #202b36;
+            border-radius: 25px;
+            background:
+                radial-gradient(
+                    circle at 50% 46%,
+                    rgba(61, 111, 148, 0.22),
+                    transparent 30%
+                ),
+                var(--dark);
+            box-shadow:
+                0 38px 80px rgba(12, 20, 29, 0.18);
         }
 
-        .nbb-system-panel::before {
-            content: "";
-            position: absolute;
-            width: 440px;
-            height: 440px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            border: 1px solid rgba(126, 170, 201, 0.24);
-            border-radius: 50%;
-        }
-
-        .nbb-system-panel::after {
-            content: "";
-            position: absolute;
-            width: 310px;
-            height: 310px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            border: 1px solid rgba(126, 170, 201, 0.16);
-            border-radius: 50%;
-        }
-
-        .nbb-system-panel__header {
+        .memory-visual__header {
             position: relative;
-            z-index: 2;
+            z-index: 5;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--line-dark);
+            margin: 0 1.8rem;
+            padding: 1.5rem 0 1rem 0;
+            border-bottom: 1px solid var(--border-dark);
         }
 
-        .nbb-system-panel__label {
-            color: #bac5cf;
-            font-size: 0.7rem;
-            font-weight: 700;
+        .memory-visual__label {
+            color: #c3ccd5;
+            font-size: 0.67rem;
+            font-weight: 720;
             letter-spacing: 0.1em;
             text-transform: uppercase;
         }
 
-        .nbb-status {
+        .memory-status {
             display: flex;
             align-items: center;
-            gap: 0.45rem;
-            color: #dce6df;
-            font-size: 0.76rem;
+            gap: 0.5rem;
+            color: #d1dad4;
+            font-size: 0.72rem;
         }
 
-        .nbb-status__dot {
+        .memory-status__dot {
             width: 7px;
             height: 7px;
             border-radius: 50%;
-            background: #4fc084;
-            box-shadow: 0 0 0 5px rgba(79, 192, 132, 0.09);
+            background: #4bc081;
+            box-shadow: 0 0 0 5px rgba(75, 192, 129, 0.08);
         }
 
-        .nbb-memory-core {
+        .memory-ring {
+            position: absolute;
+            left: 50%;
+            top: 49%;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(120, 164, 194, 0.22);
+            border-radius: 50%;
+        }
+
+        .memory-ring--one {
+            width: 420px;
+            height: 420px;
+        }
+
+        .memory-ring--two {
+            width: 310px;
+            height: 310px;
+        }
+
+        .memory-ring--three {
+            width: 205px;
+            height: 205px;
+        }
+
+        .memory-core {
             position: absolute;
             z-index: 3;
             left: 50%;
-            top: 48%;
-            width: 150px;
-            height: 150px;
+            top: 49%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 145px;
+            height: 145px;
             transform: translate(-50%, -50%);
-            border: 1px solid rgba(170, 204, 228, 0.65);
+            border: 1px solid rgba(153, 191, 217, 0.75);
             border-radius: 50%;
             background:
                 radial-gradient(
-                    circle at 42% 35%,
-                    rgba(118, 170, 207, 0.45),
-                    rgba(36, 69, 94, 0.55) 45%,
-                    rgba(16, 21, 28, 0.95) 76%
+                    circle at 40% 30%,
+                    rgba(101, 161, 201, 0.48),
+                    rgba(37, 71, 97, 0.68) 43%,
+                    rgba(14, 21, 29, 0.96) 78%
                 );
             box-shadow:
-                0 0 70px rgba(72, 130, 169, 0.32),
-                inset 0 0 40px rgba(144, 188, 217, 0.14);
-        }
-
-        .nbb-memory-core::before {
-            content: "LONGITUDINAL\\A MEMORY";
-            white-space: pre;
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            color: #e9f1f6;
-            font-size: 0.65rem;
+                0 0 75px rgba(57, 112, 150, 0.32),
+                inset 0 0 35px rgba(146, 190, 219, 0.15);
+            color: #edf3f7;
+            font-size: 0.67rem;
             font-weight: 720;
-            line-height: 1.45;
-            letter-spacing: 0.09em;
+            line-height: 1.4;
+            letter-spacing: 0.08em;
             text-align: center;
         }
 
-        .nbb-orbit-label {
+        .memory-node {
             position: absolute;
             z-index: 4;
-            padding: 0.45rem 0.65rem;
-            border: 1px solid rgba(177, 197, 211, 0.22);
+            padding: 0.48rem 0.62rem;
+            border: 1px solid rgba(151, 179, 198, 0.22);
             border-radius: 4px;
-            background: rgba(15, 22, 30, 0.86);
-            color: #cbd5dd;
+            background: rgba(13, 20, 28, 0.86);
+            color: #c7d1d9;
             font-family:
                 "SFMono-Regular",
                 Consolas,
                 monospace;
-            font-size: 0.62rem;
+            font-size: 0.6rem;
             letter-spacing: 0.04em;
         }
 
-        .nbb-orbit-label--speech {
-            left: 7%;
+        .memory-node--speech {
+            left: 6%;
             top: 31%;
         }
 
-        .nbb-orbit-label--routine {
+        .memory-node--routine {
             right: 5%;
             top: 29%;
         }
 
-        .nbb-orbit-label--episode {
-            right: 7%;
+        .memory-node--medication {
+            left: 5%;
             bottom: 24%;
         }
 
-        .nbb-orbit-label--medication {
-            left: 6%;
-            bottom: 23%;
+        .memory-node--episode {
+            right: 6%;
+            bottom: 24%;
         }
 
-        .nbb-orbit-label--visit {
+        .memory-node--visit {
             left: 50%;
-            bottom: 8%;
+            bottom: 12%;
             transform: translateX(-50%);
         }
 
-        .nbb-system-panel__footer {
+        .memory-visual__stats {
             position: absolute;
-            z-index: 4;
-            left: 2rem;
-            right: 2rem;
-            bottom: 1.6rem;
+            z-index: 5;
+            right: 1.8rem;
+            bottom: 1.5rem;
+            left: 1.8rem;
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 0.8rem;
         }
 
-        .nbb-system-stat {
-            padding-top: 0.75rem;
-            border-top: 1px solid var(--line-dark);
+        .memory-stat {
+            padding-top: 0.8rem;
+            border-top: 1px solid var(--border-dark);
         }
 
-        .nbb-system-stat__label {
-            color: #7f8d99;
-            font-size: 0.62rem;
-            letter-spacing: 0.04em;
+        .memory-stat__label {
+            color: #7f8c98;
+            font-size: 0.61rem;
             text-transform: uppercase;
         }
 
-        .nbb-system-stat__value {
+        .memory-stat__value {
             margin-top: 0.25rem;
             color: #edf3f7;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             font-weight: 650;
         }
 
-        .nbb-scope {
+        .scope-bar {
             display: grid;
             grid-template-columns: 180px 1fr;
             gap: 2rem;
-            padding: 1.45rem 0;
-            border-top: 1px solid var(--line);
-            border-bottom: 1px solid var(--line);
+            padding: 1.4rem 0;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
         }
 
-        .nbb-scope__label {
+        .scope-bar__label {
             color: var(--ink);
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             font-weight: 760;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.09em;
             text-transform: uppercase;
         }
 
-        .nbb-scope__text {
-            max-width: 900px;
+        .scope-bar__copy {
+            max-width: 930px;
             color: var(--muted);
-            font-size: 0.94rem;
+            font-size: 0.91rem;
             line-height: 1.65;
         }
 
-        .nbb-section {
-            padding: 1rem 0;
-        }
-
-        .nbb-section-header {
+        .section-header {
             display: grid;
             grid-template-columns: 180px minmax(0, 1fr);
             gap: 2rem;
-            margin-bottom: 3rem;
+            margin-bottom: 3.2rem;
         }
 
-        .nbb-section-header__index {
+        .section-index {
             padding-top: 0.55rem;
             color: var(--muted);
             font-family:
                 "SFMono-Regular",
                 Consolas,
                 monospace;
-            font-size: 0.72rem;
-            letter-spacing: 0.05em;
+            font-size: 0.7rem;
+            letter-spacing: 0.04em;
         }
 
-        .nbb-section-header__title {
-            max-width: 980px;
+        .section-title {
+            max-width: 1000px;
             margin: 0;
             color: var(--ink);
-            font-size: clamp(2.45rem, 4vw, 4.4rem);
+            font-size: clamp(2.5rem, 4vw, 4.2rem);
             font-weight: 660;
-            line-height: 1.05;
+            line-height: 1.06;
             letter-spacing: -0.055em;
         }
 
-        .nbb-section-header__description {
+        .section-description {
             max-width: 820px;
-            margin: 1.3rem 0 0 0;
+            margin: 1.2rem 0 0 0;
             color: var(--muted);
-            font-size: 1.03rem;
+            font-size: 1rem;
             line-height: 1.72;
         }
 
-        .nbb-gap-diagram {
+        .problem-flow {
             display: grid;
             grid-template-columns:
                 minmax(0, 1fr)
-                90px
+                74px
                 minmax(0, 1fr)
-                90px
+                74px
                 minmax(0, 1fr);
-            align-items: stretch;
-            border-top: 1px solid var(--line);
-            border-bottom: 1px solid var(--line);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
         }
 
-        .nbb-gap-stage {
+        .problem-stage {
             min-height: 270px;
-            padding: 2rem 1.6rem 2.2rem 0;
+            padding: 2rem 1.5rem 2.2rem 0;
         }
 
-        .nbb-gap-stage__number {
+        .problem-stage__number {
             margin-bottom: 2rem;
-            color: var(--muted-light);
+            color: var(--faint);
+            font-family:
+                "SFMono-Regular",
+                Consolas,
+                monospace;
+            font-size: 0.66rem;
+        }
+
+        .problem-stage__title {
+            margin-bottom: 0.7rem;
+            color: var(--ink);
+            font-size: 1.2rem;
+            font-weight: 670;
+        }
+
+        .problem-stage__copy {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.65;
+        }
+
+        .problem-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid var(--border);
+            border-left: 1px solid var(--border);
+            color: var(--blue);
+            font-size: 1.45rem;
+        }
+
+        .solution-callout {
+            margin-top: 1.5rem;
+            padding: 2.5rem;
+            border-radius: 18px;
+            background: var(--canvas-blue);
+        }
+
+        .solution-callout__label {
+            margin-bottom: 0.8rem;
+            color: var(--blue);
+            font-size: 0.69rem;
+            font-weight: 760;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .solution-callout__title {
+            margin: 0;
+            color: var(--blue-dark);
+            font-size: 1.6rem;
+            font-weight: 670;
+        }
+
+        .solution-callout__copy {
+            max-width: 920px;
+            margin-top: 0.8rem;
+            color: #475968;
+            font-size: 0.94rem;
+            line-height: 1.68;
+        }
+
+        .capabilities {
+            border-top: 1px solid var(--border);
+        }
+
+        .capability {
+            display: grid;
+            grid-template-columns: 120px 0.8fr 1.2fr;
+            gap: 2.5rem;
+            padding: 2.25rem 0;
+            border-bottom: 1px solid var(--border);
+            transition:
+                padding-left 160ms ease,
+                background 160ms ease;
+        }
+
+        .capability:hover {
+            padding-left: 0.8rem;
+            background: var(--canvas);
+        }
+
+        .capability__index {
+            color: var(--faint);
             font-family:
                 "SFMono-Regular",
                 Consolas,
@@ -1309,144 +1753,230 @@ render(
             font-size: 0.68rem;
         }
 
-        .nbb-gap-stage__title {
-            margin-bottom: 0.8rem;
+        .capability__title {
             color: var(--ink);
-            font-size: 1.22rem;
+            font-size: 1.3rem;
             font-weight: 670;
         }
 
-        .nbb-gap-stage__text {
+        .capability__copy {
+            max-width: 740px;
             color: var(--muted);
-            font-size: 0.9rem;
-            line-height: 1.65;
+            font-size: 0.92rem;
+            line-height: 1.7;
         }
 
-        .nbb-gap-arrow {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-left: 1px solid var(--line);
-            border-right: 1px solid var(--line);
-            color: var(--blue);
-            font-size: 1.5rem;
+        .architecture-band {
+            margin-right: calc(50% - 50vw);
+            margin-left: calc(50% - 50vw);
+            padding: 6rem max(3rem, calc((100vw - var(--max-width)) / 2 + 3rem));
+            background: var(--dark);
+            color: var(--white);
         }
 
-        .nbb-bridge {
-            padding: 2.5rem;
-            border-radius: 18px;
-            background: var(--paper-blue);
+        .architecture-band .section-title {
+            color: var(--white);
         }
 
-        .nbb-bridge__label {
-            margin-bottom: 0.9rem;
-            color: var(--blue);
-            font-size: 0.7rem;
-            font-weight: 760;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
+        .architecture-band .section-description,
+        .architecture-band .section-index {
+            color: #9ca9b5;
         }
 
-        .nbb-bridge__title {
-            margin: 0;
-            color: var(--blue-dark);
-            font-size: 1.55rem;
-            font-weight: 670;
-        }
-
-        .nbb-bridge__text {
-            margin-top: 0.8rem;
-            color: #475766;
-            font-size: 0.94rem;
-            line-height: 1.68;
-        }
-
-        .nbb-capabilities {
-            border-top: 1px solid var(--line);
-        }
-
-        .nbb-capability {
+        .architecture-grid {
             display: grid;
-            grid-template-columns: 120px 0.8fr 1.2fr;
-            gap: 2.5rem;
-            padding: 2.2rem 0;
-            border-bottom: 1px solid var(--line);
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 4rem;
+            align-items: center;
         }
 
-        .nbb-capability__index {
-            color: var(--muted-light);
+        .pipeline {
+            overflow: hidden;
+            border: 1px solid var(--border-dark);
+            border-radius: 17px;
+            background: var(--dark-soft);
+        }
+
+        .pipeline-step {
+            display: grid;
+            grid-template-columns: 95px 1fr;
+            gap: 1.2rem;
+            padding: 1.35rem 1.5rem;
+            border-bottom: 1px solid var(--border-dark);
+        }
+
+        .pipeline-step:last-child {
+            border-bottom: 0;
+        }
+
+        .pipeline-step__number {
+            color: #738291;
             font-family:
                 "SFMono-Regular",
                 Consolas,
                 monospace;
-            font-size: 0.7rem;
+            font-size: 0.66rem;
         }
 
-        .nbb-capability__title {
-            color: var(--ink);
-            font-size: 1.35rem;
-            font-weight: 670;
-        }
-
-        .nbb-capability__description {
-            max-width: 740px;
-            color: var(--muted);
+        .pipeline-step__title {
+            margin-bottom: 0.3rem;
+            color: #eff4f7;
             font-size: 0.94rem;
-            line-height: 1.7;
+            font-weight: 650;
         }
 
-        .nbb-audience-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1px;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            background: var(--line);
+        .pipeline-step__copy {
+            color: #9ba8b4;
+            font-size: 0.82rem;
+            line-height: 1.6;
         }
 
-        .nbb-audience {
-            min-height: 480px;
-            padding: 2.6rem;
-            background: var(--paper);
+        .architecture-proof {
+            padding: 2rem;
+            border: 1px solid var(--border-dark);
+            border-radius: 17px;
+            background: rgba(255, 255, 255, 0.025);
         }
 
-        .nbb-audience--clinical {
-            background: var(--paper-soft);
-        }
-
-        .nbb-audience__label {
+        .architecture-proof__label {
             margin-bottom: 1rem;
-            color: var(--blue);
+            color: #7fa7c2;
             font-size: 0.7rem;
-            font-weight: 760;
+            font-weight: 730;
             letter-spacing: 0.1em;
             text-transform: uppercase;
         }
 
-        .nbb-audience__title {
-            margin: 0 0 1.4rem 0;
-            color: var(--ink);
-            font-size: 2rem;
-            font-weight: 660;
+        .architecture-proof__title {
+            margin: 0 0 1.1rem 0;
+            color: #f0f4f7;
+            font-size: 1.75rem;
+            font-weight: 650;
         }
 
-        .nbb-audience ul {
+        .architecture-proof ul {
             margin: 0;
             padding: 0;
             list-style: none;
         }
 
-        .nbb-audience li {
+        .architecture-proof li {
             position: relative;
-            padding: 1rem 0 1rem 1.8rem;
-            border-top: 1px solid var(--line);
-            color: var(--ink-soft);
-            font-size: 0.94rem;
+            padding: 0.85rem 0 0.85rem 1.4rem;
+            border-top: 1px solid var(--border-dark);
+            color: #aab5bf;
+            font-size: 0.88rem;
             line-height: 1.55;
         }
 
-        .nbb-audience li::before {
+        .architecture-proof li::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 1.2rem;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #5ca77f;
+        }
+
+        .use-case-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+
+        .use-case {
+            min-height: 330px;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            background: var(--white);
+            transition:
+                transform 160ms ease,
+                box-shadow 160ms ease;
+        }
+
+        .use-case:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 45px rgba(15, 24, 34, 0.08);
+        }
+
+        .use-case__index {
+            margin-bottom: 3rem;
+            color: var(--faint);
+            font-family:
+                "SFMono-Regular",
+                Consolas,
+                monospace;
+            font-size: 0.68rem;
+        }
+
+        .use-case__title {
+            margin-bottom: 0.8rem;
+            color: var(--ink);
+            font-size: 1.35rem;
+            font-weight: 670;
+        }
+
+        .use-case__copy {
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.7;
+        }
+
+        .audience-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 17px;
+            background: var(--border);
+        }
+
+        .audience {
+            min-height: 485px;
+            padding: 2.6rem;
+            background: var(--white);
+        }
+
+        .audience--clinical {
+            background: var(--canvas);
+        }
+
+        .audience__label {
+            margin-bottom: 1rem;
+            color: var(--blue);
+            font-size: 0.69rem;
+            font-weight: 760;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .audience__title {
+            margin: 0 0 1.5rem 0;
+            color: var(--ink);
+            font-size: 2rem;
+            font-weight: 660;
+        }
+
+        .audience ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .audience li {
+            position: relative;
+            padding: 1rem 0 1rem 1.8rem;
+            border-top: 1px solid var(--border);
+            color: var(--ink-soft);
+            font-size: 0.92rem;
+            line-height: 1.55;
+        }
+
+        .audience li::before {
             content: "";
             position: absolute;
             left: 0;
@@ -1457,166 +1987,326 @@ render(
             background: var(--blue);
         }
 
-        .nbb-metric-strip {
+        .metric-strip {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            margin-bottom: 3rem;
-            border-top: 1px solid var(--line);
-            border-bottom: 1px solid var(--line);
+            margin-bottom: 2.5rem;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
         }
 
-        .nbb-metric {
-            padding: 1.5rem 1.6rem 1.6rem 0;
+        .metric {
+            padding: 1.5rem 1.6rem 1.7rem 0;
         }
 
-        .nbb-metric + .nbb-metric {
+        .metric + .metric {
             padding-left: 1.6rem;
-            border-left: 1px solid var(--line);
+            border-left: 1px solid var(--border);
         }
 
-        .nbb-metric__label {
+        .metric__label {
             color: var(--muted);
-            font-size: 0.75rem;
+            font-size: 0.74rem;
         }
 
-        .nbb-metric__value {
+        .metric__value {
             margin-top: 0.45rem;
             color: var(--ink);
             font-size: 2.4rem;
             font-weight: 670;
-            letter-spacing: -0.045em;
+            letter-spacing: -0.05em;
         }
 
-        .nbb-console-header {
+        .console-shell {
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 13px;
+            box-shadow: 0 28px 60px rgba(15, 23, 32, 0.08);
+        }
+
+        .console-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 1rem;
             padding: 1rem 1.2rem;
-            border-radius: 8px 8px 0 0;
-            background: var(--paper-dark);
-            color: #ffffff;
+            background: var(--dark);
+            color: var(--white);
         }
 
-        .nbb-console-header__title {
-            color: #ffffff;
-            font-size: 0.79rem;
+        .console-bar__title {
+            color: var(--white);
+            font-size: 0.76rem;
             font-weight: 680;
-            letter-spacing: 0.07em;
-            text-transform: uppercase;
-        }
-
-        .nbb-console-header__status {
-            color: #aeb9c3;
-            font-size: 0.72rem;
-        }
-
-        .nbb-result-heading {
-            margin: 1.4rem 0 0.7rem 0;
-            color: var(--ink);
-            font-size: 0.82rem;
-            font-weight: 680;
-        }
-
-        .nbb-memory-result {
-            margin-bottom: 0.75rem;
-            padding: 1rem;
-            border: 1px solid var(--line);
-            border-radius: 7px;
-            background: var(--paper);
-        }
-
-        .nbb-memory-result__meta {
-            margin-bottom: 0.45rem;
-            color: var(--blue);
-            font-size: 0.7rem;
-            font-weight: 690;
-        }
-
-        .nbb-memory-result__content {
-            color: var(--ink-soft);
-            font-size: 0.9rem;
-            line-height: 1.62;
-        }
-
-        .nbb-document {
-            height: 100%;
-            padding: 1.4rem;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: var(--paper-soft);
-        }
-
-        .nbb-document__label {
-            margin-bottom: 1rem;
-            color: var(--muted);
-            font-size: 0.7rem;
-            font-weight: 720;
             letter-spacing: 0.08em;
             text-transform: uppercase;
         }
 
-        .nbb-document pre {
-            margin: 0;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            color: #252c34;
-            font-family:
-                "SFMono-Regular",
-                Consolas,
-                monospace;
-            font-size: 0.77rem;
+        .console-bar__status {
+            color: #aab5be;
+            font-size: 0.7rem;
+        }
+
+        .retrieval-heading {
+            margin: 1.3rem 0 0.7rem 0;
+            color: var(--ink);
+            font-size: 0.8rem;
+            font-weight: 680;
+        }
+
+        .memory-result {
+            margin-bottom: 0.7rem;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--white);
+        }
+
+        .memory-result__header {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.65rem 0.8rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--canvas);
+            color: var(--blue);
+            font-size: 0.68rem;
+            font-weight: 660;
+        }
+
+        .memory-result__content {
+            padding: 0.9rem;
+            color: var(--ink-soft);
+            font-size: 0.88rem;
             line-height: 1.65;
         }
 
-        .nbb-limitations {
+        .report-grid {
+            display: grid;
+            grid-template-columns: 0.82fr 1.18fr;
+            gap: 1rem;
+        }
+
+        .report {
+            height: 100%;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--white);
+        }
+
+        .report__header {
+            padding: 1.3rem 1.4rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--canvas);
+        }
+
+        .report__eyebrow {
+            margin-bottom: 0.45rem;
+            color: var(--blue);
+            font-size: 0.67rem;
+            font-weight: 730;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        .report__title {
+            color: var(--ink);
+            font-size: 1.25rem;
+            font-weight: 670;
+        }
+
+        .report__body {
+            padding: 1.4rem;
+        }
+
+        .report-period {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .report-period__label {
+            color: var(--muted);
+            font-size: 0.76rem;
+        }
+
+        .report-period__value {
+            color: var(--ink);
+            font-size: 0.82rem;
+            font-weight: 630;
+        }
+
+        .report-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.7rem;
+            margin-top: 1rem;
+        }
+
+        .report-stat {
+            padding: 0.85rem;
+            border-radius: 7px;
+            background: var(--canvas);
+        }
+
+        .report-stat__label {
+            color: var(--muted);
+            font-size: 0.68rem;
+        }
+
+        .report-stat__value {
+            margin-top: 0.2rem;
+            color: var(--ink);
+            font-size: 1.3rem;
+            font-weight: 660;
+        }
+
+        .report-list {
+            margin-top: 1.1rem;
+        }
+
+        .report-list__heading {
+            margin-bottom: 0.6rem;
+            color: var(--ink);
+            font-size: 0.8rem;
+            font-weight: 660;
+        }
+
+        .report-list__item {
+            padding: 0.7rem 0;
+            border-top: 1px solid var(--border);
+            color: var(--ink-soft);
+            font-size: 0.79rem;
+            line-height: 1.55;
+        }
+
+        .limitations-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 2rem;
         }
 
-        .nbb-limitation {
+        .limitation {
             padding-top: 1rem;
-            border-top: 1px solid var(--line);
+            border-top: 1px solid var(--border);
         }
 
-        .nbb-limitation__title {
-            margin-bottom: 0.65rem;
+        .limitation__title {
+            margin-bottom: 0.55rem;
             color: var(--ink);
-            font-size: 0.92rem;
-            font-weight: 680;
+            font-size: 0.9rem;
+            font-weight: 670;
         }
 
-        .nbb-limitation__text {
+        .limitation__copy {
             color: var(--muted);
-            font-size: 0.86rem;
+            font-size: 0.84rem;
             line-height: 1.65;
         }
 
-        .nbb-footer {
+        .closing-band {
+            margin-top: 6rem;
+            margin-right: calc(50% - 50vw);
+            margin-left: calc(50% - 50vw);
+            padding: 6rem max(3rem, calc((100vw - var(--max-width)) / 2 + 3rem));
+            background: var(--dark);
+            color: var(--white);
+        }
+
+        .closing-band__grid {
+            display: grid;
+            grid-template-columns: 1.25fr 0.75fr;
+            gap: 4rem;
+            align-items: end;
+        }
+
+        .closing-band__eyebrow {
+            margin-bottom: 1.2rem;
+            color: #7ea6c1;
+            font-size: 0.7rem;
+            font-weight: 730;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .closing-band__title {
+            max-width: 920px;
+            margin: 0;
+            color: var(--white);
+            font-size: clamp(3rem, 5vw, 5.6rem);
+            font-weight: 660;
+            line-height: 1;
+            letter-spacing: -0.06em;
+        }
+
+        .closing-band__copy {
+            margin-top: 1.3rem;
+            max-width: 750px;
+            color: #a9b4be;
+            font-size: 0.96rem;
+            line-height: 1.7;
+        }
+
+        .closing-band__actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .closing-action {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 54px;
+            padding: 0 1rem;
+            border: 1px solid var(--border-dark);
+            border-radius: 7px;
+            color: #eaf0f4;
+            font-size: 0.84rem;
+            transition:
+                background 160ms ease,
+                transform 160ms ease;
+        }
+
+        .closing-action:hover {
+            background: var(--dark-soft);
+            transform: translateX(3px);
+        }
+
+        .site-footer {
             display: grid;
             grid-template-columns: 1fr auto;
             gap: 2rem;
-            padding: 2rem 0 0 0;
-            border-top: 1px solid var(--line);
+            padding: 2rem 0;
             color: var(--muted);
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             line-height: 1.65;
         }
 
         [data-testid="stForm"] {
-            padding: 1.25rem !important;
-            border: 1px solid var(--line) !important;
+            padding: 1.2rem !important;
+            border: 1px solid var(--border) !important;
             border-radius: 8px !important;
-            background: var(--paper-soft) !important;
+            background: var(--canvas) !important;
+        }
+
+        [data-testid="stExpander"] {
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            background: var(--white) !important;
+        }
+
+        [data-testid="stExpander"] summary {
+            color: var(--ink) !important;
+            font-weight: 630 !important;
         }
 
         [data-baseweb="input"],
         [data-baseweb="textarea"],
         [data-baseweb="select"] > div {
-            background: #ffffff !important;
-            border-color: #cfd5dc !important;
+            background: var(--white) !important;
+            border-color: #cdd4da !important;
             border-radius: 6px !important;
             color: var(--ink) !important;
             box-shadow: none !important;
@@ -1625,7 +2315,7 @@ render(
         [data-baseweb="input"] input,
         [data-baseweb="textarea"] textarea {
             color: var(--ink) !important;
-            background: #ffffff !important;
+            background: var(--white) !important;
         }
 
         [data-baseweb="select"] * {
@@ -1636,23 +2326,26 @@ render(
         .stDownloadButton > button,
         [data-testid="stFormSubmitButton"] > button {
             min-height: 2.7rem !important;
-            border: 1px solid #cbd2d9 !important;
+            border: 1px solid #cbd2d8 !important;
             border-radius: 6px !important;
-            background: #ffffff !important;
+            background: var(--white) !important;
             color: var(--ink) !important;
             font-weight: 620 !important;
             box-shadow: none !important;
+            transition:
+                border-color 160ms ease,
+                transform 160ms ease !important;
         }
 
         .stButton > button:hover,
         .stDownloadButton > button:hover,
         [data-testid="stFormSubmitButton"] > button:hover {
             border-color: var(--ink) !important;
-            background: var(--paper-soft) !important;
+            transform: translateY(-1px);
         }
 
         [data-testid="stDataFrame"] {
-            border: 1px solid var(--line) !important;
+            border: 1px solid var(--border) !important;
             border-radius: 8px !important;
             overflow: hidden;
         }
@@ -1662,98 +2355,97 @@ render(
             box-shadow: none !important;
         }
 
-        @media (max-width: 1050px) {
-            .nbb-hero {
-                grid-template-columns: 1fr;
-                gap: 3rem;
-            }
-
-            .nbb-system-panel {
-                min-height: 480px;
-            }
-
-            .nbb-gap-diagram {
+        @media (max-width: 1100px) {
+            .hero,
+            .architecture-grid,
+            .closing-band__grid {
                 grid-template-columns: 1fr;
             }
 
-            .nbb-gap-arrow {
-                min-height: 60px;
-                border: 0;
-                border-top: 1px solid var(--line);
-                border-bottom: 1px solid var(--line);
-                transform: rotate(90deg);
+            .use-case-grid,
+            .limitations-grid {
+                grid-template-columns: 1fr;
             }
 
-            .nbb-capability {
-                grid-template-columns: 80px 1fr;
+            .report-grid {
+                grid-template-columns: 1fr;
             }
 
-            .nbb-capability__description {
+            .audience-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .capability {
+                grid-template-columns: 90px 1fr;
+            }
+
+            .capability__copy {
                 grid-column: 2;
             }
 
-            .nbb-audience-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .nbb-metric-strip {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .nbb-limitations {
-                grid-template-columns: 1fr;
+            .site-links {
+                display: none;
             }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 760px) {
             .block-container {
                 padding-right: 1.2rem !important;
                 padding-left: 1.2rem !important;
             }
 
-            .nbb-nav__links {
-                display: none;
+            .site-nav {
+                grid-template-columns: 1fr auto;
             }
 
-            .nbb-hero {
+            .hero {
                 min-height: auto;
-                padding: 3.5rem 0;
+                padding: 4rem 0;
             }
 
-            .nbb-hero__title {
-                font-size: 3.7rem;
+            .hero-title {
+                font-size: 3.65rem;
             }
 
-            .nbb-section-header {
-                grid-template-columns: 1fr;
-                gap: 0.5rem;
-            }
-
-            .nbb-capability {
+            .section-header,
+            .scope-bar {
                 grid-template-columns: 1fr;
                 gap: 0.6rem;
             }
 
-            .nbb-capability__description {
+            .problem-flow {
+                grid-template-columns: 1fr;
+            }
+
+            .problem-arrow {
+                min-height: 55px;
+                border-right: 0;
+                border-left: 0;
+                border-top: 1px solid var(--border);
+                border-bottom: 1px solid var(--border);
+                transform: rotate(90deg);
+            }
+
+            .capability {
+                grid-template-columns: 1fr;
+                gap: 0.55rem;
+            }
+
+            .capability__copy {
                 grid-column: auto;
             }
 
-            .nbb-metric-strip {
+            .metric-strip {
                 grid-template-columns: 1fr;
             }
 
-            .nbb-metric + .nbb-metric {
+            .metric + .metric {
                 padding-left: 0;
+                border-top: 1px solid var(--border);
                 border-left: 0;
-                border-top: 1px solid var(--line);
             }
 
-            .nbb-scope {
-                grid-template-columns: 1fr;
-                gap: 0.6rem;
-            }
-
-            .nbb-footer {
+            .site-footer {
                 grid-template-columns: 1fr;
             }
         }
@@ -1768,18 +2460,23 @@ render(
 
 render(
     """
-    <nav class="nbb-nav">
-        <div class="nbb-nav__brand">
-            <div class="nbb-nav__symbol"></div>
+    <nav class="site-nav">
+        <a class="site-brand" href="#top">
+            <span class="site-mark"></span>
             <span>NeuroBlackBox</span>
+        </a>
+
+        <div class="site-links">
+            <a href="#problem">Problem</a>
+            <a href="#system">System</a>
+            <a href="#architecture">Architecture</a>
+            <a href="#prototype">Prototype</a>
+            <a href="#safety">Safety</a>
         </div>
 
-        <div class="nbb-nav__links">
-            <span>Problem</span>
-            <span>Memory layer</span>
-            <span>Prototype</span>
-            <span>Research boundary</span>
-        </div>
+        <a class="nav-action" href="#prototype">
+            Open prototype
+        </a>
     </nav>
     """
 )
@@ -1789,103 +2486,117 @@ render(
 # Hero
 # =============================================================================
 
-memory_status = (
-    "Online"
-    if supermemory_available
-    else "Fallback"
-)
-
 render(
     f"""
-    <header class="nbb-hero">
+    <div id="top"></div>
+
+    <header class="hero">
         <div>
-            <div class="nbb-eyebrow">
-                Longitudinal memory infrastructure for cognitive care
+            <div class="eyebrow">
+                Cognitive care loses context between appointments
             </div>
 
-            <h1 class="nbb-hero__title">
-                Care does not end when the <span>appointment does.</span>
+            <h1 class="hero-title">
+                Care does not end when the
+                <span>appointment does.</span>
             </h1>
 
-            <p class="nbb-hero__summary">
-                NeuroBlackBox preserves symptoms, routines, caregiver observations,
-                interventions, improvements, and clinical discussions across time,
-                so families and clinicians do not have to reconstruct cognitive
-                change from memory alone.
+            <p class="hero-lead">
+                NeuroBlackBox creates a continuous memory of symptoms,
+                routines, interventions, improvements, caregiver observations,
+                and clinical conversations.
             </p>
 
-            <p class="nbb-hero__support">
-                The system is designed for continuity between daily life and
-                clinical review, including communities where specialist access,
-                reliable documentation, or consistent follow-up may be limited.
+            <p class="hero-support">
+                Families no longer have to reconstruct weeks of cognitive
+                change from memory. Clinicians receive a structured,
+                source-grounded interval history instead of tracing every
+                symptom from the beginning.
             </p>
 
-            <div class="nbb-hero__tags">
-                <span>Local-first</span>
-                <span>Source-grounded</span>
-                <span>Longitudinal</span>
-                <span>Clinician preparation</span>
+            <div class="hero-actions">
+                <a class="button-primary" href="#prototype">
+                    View the live prototype
+                </a>
+
+                <a class="button-secondary" href="#architecture">
+                    Explore the memory architecture
+                </a>
+            </div>
+
+            <div class="proof-row">
+                <span>Local-first memory</span>
+                <span>Source-grounded retrieval</span>
+                <span>Longitudinal history</span>
+                <span>Clinician-ready summaries</span>
             </div>
         </div>
 
-        <aside class="nbb-system-panel">
-            <div class="nbb-system-panel__header">
-                <div class="nbb-system-panel__label">
-                    Live memory architecture
+        <aside class="memory-visual">
+            <div class="memory-visual__header">
+                <div class="memory-visual__label">
+                    Live longitudinal memory
                 </div>
 
-                <div class="nbb-status">
-                    <div class="nbb-status__dot"></div>
+                <div class="memory-status">
+                    <span class="memory-status__dot"></span>
                     <span>Supermemory {escape(memory_status)}</span>
                 </div>
             </div>
 
-            <div class="nbb-memory-core"></div>
+            <div class="memory-ring memory-ring--one"></div>
+            <div class="memory-ring memory-ring--two"></div>
+            <div class="memory-ring memory-ring--three"></div>
 
-            <div class="nbb-orbit-label nbb-orbit-label--speech">
+            <div class="memory-core">
+                LONGITUDINAL<br>
+                MEMORY
+            </div>
+
+            <div class="memory-node memory-node--speech">
                 SPEECH
             </div>
 
-            <div class="nbb-orbit-label nbb-orbit-label--routine">
+            <div class="memory-node memory-node--routine">
                 ROUTINE
             </div>
 
-            <div class="nbb-orbit-label nbb-orbit-label--episode">
-                EPISODE
-            </div>
-
-            <div class="nbb-orbit-label nbb-orbit-label--medication">
+            <div class="memory-node memory-node--medication">
                 MEDICATION
             </div>
 
-            <div class="nbb-orbit-label nbb-orbit-label--visit">
+            <div class="memory-node memory-node--episode">
+                EPISODE
+            </div>
+
+            <div class="memory-node memory-node--visit">
                 CLINICAL VISIT
             </div>
 
-            <div class="nbb-system-panel__footer">
-                <div class="nbb-system-stat">
-                    <div class="nbb-system-stat__label">
+            <div class="memory-visual__stats">
+                <div class="memory-stat">
+                    <div class="memory-stat__label">
                         Records
                     </div>
-                    <div class="nbb-system-stat__value">
+                    <div class="memory-stat__value">
                         {metrics["total"]}
                     </div>
                 </div>
 
-                <div class="nbb-system-stat">
-                    <div class="nbb-system-stat__label">
+                <div class="memory-stat">
+                    <div class="memory-stat__label">
                         High severity
                     </div>
-                    <div class="nbb-system-stat__value">
+                    <div class="memory-stat__value">
                         {metrics["high"]}
                     </div>
                 </div>
 
-                <div class="nbb-system-stat">
-                    <div class="nbb-system-stat__label">
+                <div class="memory-stat">
+                    <div class="memory-stat__label">
                         Storage
                     </div>
-                    <div class="nbb-system-stat__value">
+                    <div class="memory-stat__value">
                         Local
                     </div>
                 </div>
@@ -1897,16 +2608,17 @@ render(
 
 render(
     """
-    <div class="nbb-scope">
-        <div class="nbb-scope__label">
+    <div class="scope-bar">
+        <div class="scope-bar__label">
             Clinical boundary
         </div>
 
-        <div class="nbb-scope__text">
-            NeuroBlackBox preserves and organizes caregiver-reported observations.
-            It does not diagnose, screen, predict, or treat Alzheimer's disease,
-            dementia, or any other medical condition. It does not replace a
-            clinician or an official medical record.
+        <div class="scope-bar__copy">
+            NeuroBlackBox preserves caregiver-reported observations and
+            supports preparation for clinical review. It does not diagnose,
+            screen, predict, or treat Alzheimer's disease, dementia, or any
+            other medical condition. It does not replace a clinician or an
+            official medical record.
         </div>
     </div>
     """
@@ -1916,80 +2628,103 @@ st.divider()
 
 
 # =============================================================================
-# Problem
+# Problem section
 # =============================================================================
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
+    <section id="problem">
+        <div class="section-header">
+            <div class="section-index">
                 01 / CONTINUITY GAP
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
-                    Critical context disappears between daily life and clinical care.
+                <h2 class="section-title">
+                    Critical information disappears between daily life
+                    and clinical care.
                 </h2>
 
-                <p class="nbb-section-header__description">
-                    Patients and families may not remember every symptom, improvement,
-                    recommendation, or contextual change from one appointment to the
-                    next. Clinicians then have to reconstruct a longitudinal history
+                <p class="section-description">
+                    Patients and families may not remember every symptom,
+                    improvement, recommendation, medication effect, or
+                    contextual change from one appointment to the next.
+                    Clinicians must then reconstruct a longitudinal history
                     from fragmented recollection.
                 </p>
             </div>
         </div>
 
-        <div class="nbb-gap-diagram">
-            <article class="nbb-gap-stage">
-                <div class="nbb-gap-stage__number">01</div>
-                <div class="nbb-gap-stage__title">Daily life</div>
-                <div class="nbb-gap-stage__text">
+        <div class="problem-flow">
+            <article class="problem-stage">
+                <div class="problem-stage__number">
+                    01
+                </div>
+
+                <div class="problem-stage__title">
+                    Daily life
+                </div>
+
+                <div class="problem-stage__copy">
                     Speech pauses, repeated questions, medication changes,
                     disrupted routines, navigation issues, and improvements
                     occur outside the clinic.
                 </div>
             </article>
 
-            <div class="nbb-gap-arrow">→</div>
+            <div class="problem-arrow">
+                →
+            </div>
 
-            <article class="nbb-gap-stage">
-                <div class="nbb-gap-stage__number">02</div>
-                <div class="nbb-gap-stage__title">Clinical visit</div>
-                <div class="nbb-gap-stage__text">
+            <article class="problem-stage">
+                <div class="problem-stage__number">
+                    02
+                </div>
+
+                <div class="problem-stage__title">
+                    Clinical visit
+                </div>
+
+                <div class="problem-stage__copy">
                     A short appointment compresses weeks or months of lived
-                    experience into a retrospective conversation.
+                    experience into one retrospective conversation.
                 </div>
             </article>
 
-            <div class="nbb-gap-arrow">→</div>
+            <div class="problem-arrow">
+                →
+            </div>
 
-            <article class="nbb-gap-stage">
-                <div class="nbb-gap-stage__number">03</div>
-                <div class="nbb-gap-stage__title">Follow-up</div>
-                <div class="nbb-gap-stage__text">
-                    Families may forget recommendations, struggle to evaluate
+            <article class="problem-stage">
+                <div class="problem-stage__number">
+                    03
+                </div>
+
+                <div class="problem-stage__title">
+                    Follow-up
+                </div>
+
+                <div class="problem-stage__copy">
+                    Families may forget recommendations, struggle to assess
                     progress, or return without a structured interval history.
                 </div>
             </article>
         </div>
 
-        <div style="height: 1.5rem;"></div>
-
-        <div class="nbb-bridge">
-            <div class="nbb-bridge__label">
+        <div class="solution-callout">
+            <div class="solution-callout__label">
                 NeuroBlackBox memory layer
             </div>
 
-            <h3 class="nbb-bridge__title">
+            <h3 class="solution-callout__title">
                 A persistent record across the complete care interval.
             </h3>
 
-            <p class="nbb-bridge__text">
-                The system connects caregiver observations, previous visit context,
-                intervention history, symptom evolution, and clinician-preparation
-                outputs through a searchable local memory layer.
+            <p class="solution-callout__copy">
+                The system connects caregiver observations, prior visit
+                context, intervention history, symptom evolution, and
+                clinician-preparation outputs through a searchable local
+                memory layer.
             </p>
         </div>
     </section>
@@ -2005,77 +2740,99 @@ st.divider()
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
-                02 / MEMORY SYSTEM
+    <section id="system">
+        <div class="section-header">
+            <div class="section-index">
+                02 / PRODUCT SYSTEM
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
+                <h2 class="section-title">
                     From isolated observations to a longitudinal care record.
                 </h2>
 
-                <p class="nbb-section-header__description">
-                    NeuroBlackBox is organized around five operations: capture,
-                    remember, connect, retrieve, and prepare.
+                <p class="section-description">
+                    NeuroBlackBox is organized around five continuous
+                    operations: capture, remember, connect, retrieve,
+                    and prepare.
                 </p>
             </div>
         </div>
 
-        <div class="nbb-capabilities">
-            <article class="nbb-capability">
-                <div class="nbb-capability__index">01 / CAPTURE</div>
-                <div class="nbb-capability__title">
+        <div class="capabilities">
+            <article class="capability">
+                <div class="capability__index">
+                    01 / CAPTURE
+                </div>
+
+                <div class="capability__title">
                     Record what happened.
                 </div>
-                <div class="nbb-capability__description">
+
+                <div class="capability__copy">
                     Store dated observations covering symptoms, routines,
-                    medication, navigation, significant episodes, contextual
-                    changes, and improvements.
+                    medication, navigation, significant episodes,
+                    contextual changes, interventions, and improvements.
                 </div>
             </article>
 
-            <article class="nbb-capability">
-                <div class="nbb-capability__index">02 / REMEMBER</div>
-                <div class="nbb-capability__title">
+            <article class="capability">
+                <div class="capability__index">
+                    02 / REMEMBER
+                </div>
+
+                <div class="capability__title">
                     Preserve context locally.
                 </div>
-                <div class="nbb-capability__description">
-                    Write each observation to an inspectable local record and
-                    a semantic memory layer powered by Supermemory Local.
+
+                <div class="capability__copy">
+                    Write every observation to an inspectable local record
+                    and a semantic memory layer powered by Supermemory Local.
                 </div>
             </article>
 
-            <article class="nbb-capability">
-                <div class="nbb-capability__index">03 / CONNECT</div>
-                <div class="nbb-capability__title">
+            <article class="capability">
+                <div class="capability__index">
+                    03 / CONNECT
+                </div>
+
+                <div class="capability__title">
                     Relate events across time.
                 </div>
-                <div class="nbb-capability__description">
-                    Connect new observations with previous symptoms, appointments,
-                    recommendations, interventions, and outcomes.
+
+                <div class="capability__copy">
+                    Connect new observations with previous symptoms,
+                    appointments, recommendations, interventions,
+                    medication changes, and outcomes.
                 </div>
             </article>
 
-            <article class="nbb-capability">
-                <div class="nbb-capability__index">04 / RETRIEVE</div>
-                <div class="nbb-capability__title">
+            <article class="capability">
+                <div class="capability__index">
+                    04 / RETRIEVE
+                </div>
+
+                <div class="capability__title">
                     Ask the complete history.
                 </div>
-                <div class="nbb-capability__description">
-                    Retrieve source-grounded records using questions such as
+
+                <div class="capability__copy">
+                    Retrieve source-grounded records with questions such as
                     “What changed after the last appointment?” or “What was
                     observed before the latest episode?”
                 </div>
             </article>
 
-            <article class="nbb-capability">
-                <div class="nbb-capability__index">05 / PREPARE</div>
-                <div class="nbb-capability__title">
+            <article class="capability">
+                <div class="capability__index">
+                    05 / PREPARE
+                </div>
+
+                <div class="capability__title">
                     Enter the next visit prepared.
                 </div>
-                <div class="nbb-capability__description">
+
+                <div class="capability__copy">
                     Generate a structured interval history, before-episode
                     reconstruction, and caregiver-clinician preparation summary.
                 </div>
@@ -2089,52 +2846,281 @@ st.divider()
 
 
 # =============================================================================
-# Two-sided value
+# Architecture band
 # =============================================================================
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
-                03 / SHARED CONTEXT
+    <section id="architecture" class="architecture-band">
+        <div class="section-header">
+            <div class="section-index">
+                03 / SUPERMEMORY ARCHITECTURE
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
-                    One longitudinal record for families, caregivers, and clinicians.
+                <h2 class="section-title">
+                    Built on a persistent local memory layer.
                 </h2>
 
-                <p class="nbb-section-header__description">
+                <p class="section-description">
+                    Supermemory Local provides the semantic persistence and
+                    retrieval layer that connects observations across sessions
+                    without treating the system as a diagnostic engine.
+                </p>
+            </div>
+        </div>
+
+        <div class="architecture-grid">
+            <div class="pipeline">
+                <article class="pipeline-step">
+                    <div class="pipeline-step__number">
+                        01 / INPUT
+                    </div>
+
+                    <div>
+                        <div class="pipeline-step__title">
+                            Caregiver observation
+                        </div>
+
+                        <div class="pipeline-step__copy">
+                            Dated source records describe symptoms, routines,
+                            episodes, interventions, appointments, and outcomes.
+                        </div>
+                    </div>
+                </article>
+
+                <article class="pipeline-step">
+                    <div class="pipeline-step__number">
+                        02 / RECORD
+                    </div>
+
+                    <div>
+                        <div class="pipeline-step__title">
+                            Structured local persistence
+                        </div>
+
+                        <div class="pipeline-step__copy">
+                            An inspectable CSV record provides transparent
+                            persistence and deterministic fallback.
+                        </div>
+                    </div>
+                </article>
+
+                <article class="pipeline-step">
+                    <div class="pipeline-step__number">
+                        03 / MEMORY
+                    </div>
+
+                    <div>
+                        <div class="pipeline-step__title">
+                            Supermemory semantic storage
+                        </div>
+
+                        <div class="pipeline-step__copy">
+                            Observations remain retrievable across sessions
+                            through a local semantic memory container.
+                        </div>
+                    </div>
+                </article>
+
+                <article class="pipeline-step">
+                    <div class="pipeline-step__number">
+                        04 / RETRIEVE
+                    </div>
+
+                    <div>
+                        <div class="pipeline-step__title">
+                            Question-conditioned recall
+                        </div>
+
+                        <div class="pipeline-step__copy">
+                            Natural-language questions retrieve related
+                            source observations from the longitudinal record.
+                        </div>
+                    </div>
+                </article>
+
+                <article class="pipeline-step">
+                    <div class="pipeline-step__number">
+                        05 / OUTPUT
+                    </div>
+
+                    <div>
+                        <div class="pipeline-step__title">
+                            Clinician-preparation documents
+                        </div>
+
+                        <div class="pipeline-step__copy">
+                            Source-grounded summaries organize the interval
+                            history without assigning diagnosis or risk.
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <aside class="architecture-proof">
+                <div class="architecture-proof__label">
+                    Why Supermemory matters
+                </div>
+
+                <h3 class="architecture-proof__title">
+                    Memory that persists beyond a single interaction.
+                </h3>
+
+                <ul>
+                    <li>
+                        Remembers observations across separate sessions.
+                    </li>
+                    <li>
+                        Retrieves semantically related events and context.
+                    </li>
+                    <li>
+                        Preserves source records for human inspection.
+                    </li>
+                    <li>
+                        Supports questions across a longitudinal history.
+                    </li>
+                    <li>
+                        Runs locally for privacy-sensitive workflows.
+                    </li>
+                </ul>
+            </aside>
+        </div>
+    </section>
+    """
+)
+
+st.divider()
+
+
+# =============================================================================
+# Use cases
+# =============================================================================
+
+render(
+    """
+    <section>
+        <div class="section-header">
+            <div class="section-index">
+                04 / CARE CONTINUITY
+            </div>
+
+            <div>
+                <h2 class="section-title">
+                    Useful at every point between appointments.
+                </h2>
+
+                <p class="section-description">
+                    The system supports the real information workflow across
+                    daily observation, follow-up preparation, and clinical review.
+                </p>
+            </div>
+        </div>
+
+        <div class="use-case-grid">
+            <article class="use-case">
+                <div class="use-case__index">
+                    01 / BETWEEN APPOINTMENTS
+                </div>
+
+                <div class="use-case__title">
+                    Capture changes while they are still specific.
+                </div>
+
+                <div class="use-case__copy">
+                    A caregiver records changes as they occur instead of trying
+                    to reconstruct several weeks of symptoms immediately before
+                    an appointment.
+                </div>
+            </article>
+
+            <article class="use-case">
+                <div class="use-case__index">
+                    02 / BEFORE FOLLOW-UP
+                </div>
+
+                <div class="use-case__title">
+                    Review what changed since the previous visit.
+                </div>
+
+                <div class="use-case__copy">
+                    The family retrieves observations related to speech,
+                    repetition, medication, routines, episodes, and improvement,
+                    then prepares concrete discussion questions.
+                </div>
+            </article>
+
+            <article class="use-case">
+                <div class="use-case__index">
+                    03 / CLINICAL REVIEW
+                </div>
+
+                <div class="use-case__title">
+                    Begin with context instead of reconstruction.
+                </div>
+
+                <div class="use-case__copy">
+                    A clinician can review a structured interval history and
+                    source observations without repeating the entire symptom
+                    traceback from the beginning.
+                </div>
+            </article>
+        </div>
+    </section>
+    """
+)
+
+st.divider()
+
+
+# =============================================================================
+# Shared value
+# =============================================================================
+
+render(
+    """
+    <section>
+        <div class="section-header">
+            <div class="section-index">
+                05 / SHARED CONTEXT
+            </div>
+
+            <div>
+                <h2 class="section-title">
+                    One longitudinal record for families, caregivers,
+                    and clinicians.
+                </h2>
+
+                <p class="section-description">
                     The prototype supports continuity of information without
-                    presenting itself as a diagnostic system or a replacement
+                    positioning itself as a diagnostic system or a replacement
                     for formal clinical documentation.
                 </p>
             </div>
         </div>
 
-        <div class="nbb-audience-grid">
-            <article class="nbb-audience">
-                <div class="nbb-audience__label">
+        <div class="audience-grid">
+            <article class="audience">
+                <div class="audience__label">
                     Families and caregivers
                 </div>
 
-                <h3 class="nbb-audience__title">
+                <h3 class="audience__title">
                     Preserve the details that memory loses.
                 </h3>
 
                 <ul>
                     <li>
-                        Record subtle changes before they collapse into vague recall.
+                        Record subtle changes before they become vague recall.
                     </li>
                     <li>
                         Track improvement, deterioration, and recurring patterns.
                     </li>
                     <li>
-                        Recall previous recommendations and appointment context.
+                        Recall previous recommendations and visit context.
                     </li>
                     <li>
-                        Prepare concrete questions before the next visit.
+                        Prepare concrete questions before the next appointment.
                     </li>
                     <li>
                         Maintain continuity when several relatives provide care.
@@ -2142,12 +3128,12 @@ render(
                 </ul>
             </article>
 
-            <article class="nbb-audience nbb-audience--clinical">
-                <div class="nbb-audience__label">
+            <article class="audience audience--clinical">
+                <div class="audience__label">
                     Clinician preparation
                 </div>
 
-                <h3 class="nbb-audience__title">
+                <h3 class="audience__title">
                     Review a structured interval history.
                 </h3>
 
@@ -2159,10 +3145,10 @@ render(
                         Inspect source records instead of relying only on summaries.
                     </li>
                     <li>
-                        Review context around medication, routines, or interventions.
+                        Review context around medication and interventions.
                     </li>
                     <li>
-                        Reduce repeated reconstruction of the same patient history.
+                        Reduce repeated reconstruction of patient history.
                     </li>
                     <li>
                         Identify areas that may warrant further clinical questioning.
@@ -2183,20 +3169,21 @@ st.divider()
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
-                04 / WORKING PROTOTYPE
+    <section id="prototype">
+        <div class="section-header">
+            <div class="section-index">
+                06 / WORKING PROTOTYPE
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
+                <h2 class="section-title">
                     Search, record, reconstruct, and prepare.
                 </h2>
 
-                <p class="nbb-section-header__description">
-                    The operational console demonstrates the complete local-first
-                    workflow using the existing caregiver observation record.
+                <p class="section-description">
+                    The operational console demonstrates the complete
+                    Supermemory-powered local workflow using the current
+                    caregiver observation record.
                 </p>
             </div>
         </div>
@@ -2206,25 +3193,53 @@ render(
 
 render(
     f"""
-    <div class="nbb-metric-strip">
-        <div class="nbb-metric">
-            <div class="nbb-metric__label">Total observations</div>
-            <div class="nbb-metric__value">{metrics["total"]}</div>
+    <div class="metric-strip">
+        <div class="metric">
+            <div class="metric__label">
+                Total observations
+            </div>
+            <div class="metric__value">
+                {metrics["total"]}
+            </div>
         </div>
 
-        <div class="nbb-metric">
-            <div class="nbb-metric__label">Speech records</div>
-            <div class="nbb-metric__value">{metrics["speech"]}</div>
+        <div class="metric">
+            <div class="metric__label">
+                Speech records
+            </div>
+            <div class="metric__value">
+                {metrics["speech"]}
+            </div>
         </div>
 
-        <div class="nbb-metric">
-            <div class="nbb-metric__label">Repetition records</div>
-            <div class="nbb-metric__value">{metrics["repetition"]}</div>
+        <div class="metric">
+            <div class="metric__label">
+                Repetition records
+            </div>
+            <div class="metric__value">
+                {metrics["repetition"]}
+            </div>
         </div>
 
-        <div class="nbb-metric">
-            <div class="nbb-metric__label">High-severity records</div>
-            <div class="nbb-metric__value">{metrics["high"]}</div>
+        <div class="metric">
+            <div class="metric__label">
+                High-severity records
+            </div>
+            <div class="metric__value">
+                {metrics["high"]}
+            </div>
+        </div>
+    </div>
+
+    <div class="console-shell">
+        <div class="console-bar">
+            <div class="console-bar__title">
+                NeuroBlackBox Memory Console
+            </div>
+
+            <div class="console-bar__status">
+                Supermemory: {escape(memory_status)}
+            </div>
         </div>
     </div>
     """
@@ -2232,70 +3247,71 @@ render(
 
 if st.session_state["last_save_message"]:
     if st.session_state["last_save_success"]:
-        st.success(st.session_state["last_save_message"])
+        st.success(
+            st.session_state["last_save_message"]
+        )
     else:
-        st.warning(st.session_state["last_save_message"])
-
-render(
-    f"""
-    <div class="nbb-console-header">
-        <div class="nbb-console-header__title">
-            NeuroBlackBox local console
-        </div>
-
-        <div class="nbb-console-header__status">
-            Supermemory: {escape(memory_status)}
-        </div>
-    </div>
-    """
-)
+        st.warning(
+            st.session_state["last_save_message"]
+        )
 
 console_left, console_right = st.columns(
-    [0.82, 1.18],
+    [
+        0.82,
+        1.18,
+    ],
     gap="large",
 )
 
 with console_left:
-    st.markdown("### Retrieve the longitudinal record")
+    st.markdown(
+        "### Search the longitudinal record"
+    )
 
-    query_col_1, query_col_2 = st.columns(2)
+    preset_one, preset_two = st.columns(
+        2,
+    )
 
-    with query_col_1:
-        if st.button(
-            "Changes in 30 days",
+    with preset_one:
+        st.button(
+            "Changes since last visit",
             use_container_width=True,
-        ):
-            set_query(
-                "What changed over the last 30 days?"
-            )
+            on_click=set_query,
+            args=(
+                "What changed after the previous appointment?",
+            ),
+        )
 
-        if st.button(
+        st.button(
             "Repetition patterns",
             use_container_width=True,
-        ):
-            set_query(
-                "How have repeated questions changed?"
-            )
+            on_click=set_query,
+            args=(
+                "How have repeated questions changed?",
+            ),
+        )
 
-    with query_col_2:
-        if st.button(
+    with preset_two:
+        st.button(
             "Speech and pauses",
             use_container_width=True,
-        ):
-            set_query(
-                "What speech pauses or word-finding changes were recorded?"
-            )
+            on_click=set_query,
+            args=(
+                "What speech pauses or word-finding changes were recorded?",
+            ),
+        )
 
-        if st.button(
+        st.button(
             "Before latest episode",
             use_container_width=True,
-        ):
-            set_query(
-                "What was observed before the latest high-severity episode?"
-            )
+            on_click=set_query,
+            args=(
+                "What was observed before the latest high-severity episode?",
+            ),
+        )
 
     question = st.text_input(
-        "Ask the longitudinal record",
+        "Ask the memory record",
         key="query",
         placeholder=(
             "Example: What changed after the previous appointment?"
@@ -2304,7 +3320,7 @@ with console_left:
 
     if question.strip():
         with st.spinner(
-            "Searching the local memory record..."
+            "Searching the local longitudinal record..."
         ):
             try:
                 semantic_results = search_observations(
@@ -2314,11 +3330,11 @@ with console_left:
             except Exception:
                 semantic_results = []
 
-        used_semantic_results = display_memory_results(
-            semantic_results
+        semantic_used = display_memory_results(
+            semantic_results,
         )
 
-        if not used_semantic_results:
+        if not semantic_used:
             st.caption(
                 "Semantic retrieval returned no records. "
                 "Displaying deterministic local fallback."
@@ -2337,140 +3353,183 @@ with console_left:
                 for _, row in fallback_results.iterrows():
                     render(
                         f"""
-                        <article class="nbb-memory-result">
-                            <div class="nbb-memory-result__meta">
-                                Local source record ·
-                                {escape(row["date"].strftime("%b %d, %Y"))}
+                        <article class="memory-result">
+                            <div class="memory-result__header">
+                                <span>
+                                    Local source observation
+                                </span>
+
+                                <span>
+                                    {escape(row["date"].strftime("%b %d, %Y"))}
+                                </span>
                             </div>
 
-                            <div class="nbb-memory-result__content">
+                            <div class="memory-result__content">
                                 <strong>
-                                    {escape(row["type"])} ·
+                                    {escape(row["type"])}
+                                    ·
                                     {escape(row["severity"])}
                                 </strong>
-                                <br>
+
+                                <br><br>
+
                                 {escape(row["observation"])}
                             </div>
                         </article>
                         """
                     )
 
-    st.markdown("### Record a new observation")
-
-    with st.form(
-        "observation_form",
-        clear_on_submit=True,
+    with st.expander(
+        "Add a new source observation",
+        expanded=False,
     ):
-        observation_date = st.date_input(
-            "Observation date",
-            value=date.today(),
-        )
-
-        observation_type = st.selectbox(
-            "Observation category",
-            options=OBSERVATION_TYPES,
-        )
-
-        severity = st.selectbox(
-            "Recorded severity",
-            options=SEVERITY_LEVELS,
-        )
-
-        source = st.text_input(
-            "Source",
-            value="caregiver",
-        )
-
-        observation = st.text_area(
-            "Direct observation",
-            placeholder=(
-                "Describe what was directly observed, including context. "
-                "Avoid diagnosis or interpretation where possible."
-            ),
-            height=150,
-        )
-
-        submitted = st.form_submit_button(
-            "Save observation",
-            use_container_width=True,
-        )
-
-    if submitted:
-        cleaned_observation = observation.strip()
-        cleaned_source = source.strip() or "caregiver"
-
-        if not cleaned_observation:
-            st.error(
-                "Enter an observation before saving."
-            )
-        else:
-            memory_row = {
-                "date": observation_date.isoformat(),
-                "type": observation_type,
-                "severity": severity,
-                "source": cleaned_source,
-                "observation": cleaned_observation,
-            }
-
-            new_row = pd.DataFrame(
-                [
-                    {
-                        "date": pd.to_datetime(observation_date),
-                        "type": observation_type,
-                        "severity": severity,
-                        "source": cleaned_source,
-                        "observation": cleaned_observation,
-                    }
-                ]
+        with st.form(
+            "observation_form",
+            clear_on_submit=True,
+        ):
+            observation_date = st.date_input(
+                "Observation date",
+                value=date.today(),
             )
 
-            updated_df = pd.concat(
-                [
-                    df,
-                    new_row,
-                ],
-                ignore_index=True,
+            observation_type = st.selectbox(
+                "Observation category",
+                options=OBSERVATION_TYPES,
             )
 
-            save_data(updated_df)
+            severity = st.selectbox(
+                "Recorded severity",
+                options=SEVERITY_LEVELS,
+            )
 
-            try:
-                stored_in_memory = store_observation(
-                    memory_row
-                )
-            except Exception:
-                stored_in_memory = False
+            source = st.text_input(
+                "Source",
+                value="caregiver",
+            )
 
-            if stored_in_memory:
-                st.session_state["last_save_success"] = True
-                st.session_state["last_save_message"] = (
-                    "Observation saved to the local record "
-                    "and Supermemory Local."
+            observation = st.text_area(
+                "Direct observation",
+                placeholder=(
+                    "Describe what was directly observed, including context. "
+                    "Avoid diagnosis or interpretation where possible."
+                ),
+                height=150,
+            )
+
+            submitted = st.form_submit_button(
+                "Save observation",
+                use_container_width=True,
+            )
+
+        if submitted:
+            cleaned_observation = (
+                observation.strip()
+            )
+
+            cleaned_source = (
+                source.strip()
+                or "caregiver"
+            )
+
+            if not cleaned_observation:
+                st.error(
+                    "Enter an observation before saving."
                 )
             else:
-                st.session_state["last_save_success"] = False
-                st.session_state["last_save_message"] = (
-                    "Observation saved to the local record. "
-                    "The Supermemory Local write was not confirmed."
+                memory_row = {
+                    "date": observation_date.isoformat(),
+                    "type": observation_type,
+                    "severity": severity,
+                    "source": cleaned_source,
+                    "observation": cleaned_observation,
+                }
+
+                new_row = pd.DataFrame(
+                    [
+                        {
+                            "date": pd.to_datetime(
+                                observation_date,
+                            ),
+                            "type": observation_type,
+                            "severity": severity,
+                            "source": cleaned_source,
+                            "observation": cleaned_observation,
+                        }
+                    ]
                 )
 
-            st.rerun()
+                updated_df = pd.concat(
+                    [
+                        df,
+                        new_row,
+                    ],
+                    ignore_index=True,
+                )
+
+                save_data(
+                    updated_df,
+                )
+
+                try:
+                    stored_in_memory = store_observation(
+                        memory_row,
+                    )
+                except Exception:
+                    stored_in_memory = False
+
+                if stored_in_memory:
+                    st.session_state["last_save_success"] = True
+
+                    st.session_state["last_save_message"] = (
+                        "Observation saved to the local record "
+                        "and Supermemory Local."
+                    )
+                else:
+                    st.session_state["last_save_success"] = False
+
+                    st.session_state["last_save_message"] = (
+                        "Observation saved to the local record. "
+                        "The Supermemory Local write was not confirmed."
+                    )
+
+                st.rerun()
 
 with console_right:
-    st.markdown("### Before-episode reconstruction")
+    st.markdown(
+        "### Before-episode reconstruction"
+    )
 
     render(
         f"""
-        <div class="nbb-document">
-            <div class="nbb-document__label">
-                Source-grounded reconstruction
+        <article class="report">
+            <div class="report__header">
+                <div class="report__eyebrow">
+                    Source-grounded reconstruction
+                </div>
+
+                <div class="report__title">
+                    Context preceding the latest high-severity episode
+                </div>
             </div>
-            <pre>{escape(before_episode_analysis)}</pre>
-        </div>
+
+            <div class="report__body">
+                <div class="report-list">
+                    {
+                        "".join(
+                            f'<div class="report-list__item">{escape(line)}</div>'
+                            for line in before_episode_analysis.splitlines()
+                            if line.strip()
+                        )
+                    }
+                </div>
+            </div>
+        </article>
         """
     )
 
-    st.markdown("### Source observation table")
+    st.markdown(
+        "### Source observation table"
+    )
 
     if df.empty:
         st.info(
@@ -2479,8 +3538,9 @@ with console_right:
     else:
         timeline = df.copy()
 
-        timeline["date"] = timeline["date"].dt.strftime(
-            "%Y-%m-%d"
+        timeline["date"] = (
+            timeline["date"]
+            .dt.strftime("%Y-%m-%d")
         )
 
         st.dataframe(
@@ -2502,25 +3562,58 @@ st.divider()
 
 
 # =============================================================================
-# Generated review documents
+# Review documents
 # =============================================================================
+
+recent_window = thirty_day_window(
+    df,
+)
+
+recent_metrics = analyze_observations(
+    recent_window,
+)
+
+high_records = df[
+    df["severity"] == "high"
+].sort_values(
+    "date",
+)
+
+recent_records = df.sort_values(
+    "date",
+).tail(
+    4,
+)
+
+review_start = (
+    recent_window["date"].min().strftime("%b %d, %Y")
+    if not recent_window.empty
+    else "No data"
+)
+
+review_end = (
+    recent_window["date"].max().strftime("%b %d, %Y")
+    if not recent_window.empty
+    else "No data"
+)
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
-                05 / REVIEW DOCUMENTS
+    <section>
+        <div class="section-header">
+            <div class="section-index">
+                07 / REVIEW DOCUMENTS
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
+                <h2 class="section-title">
                     Structured outputs for the next clinical conversation.
                 </h2>
 
-                <p class="nbb-section-header__description">
-                    Each document remains descriptive, source-grounded, and
-                    explicitly separated from diagnosis or treatment.
+                <p class="section-description">
+                    The on-page presentation is designed for rapid human review.
+                    Downloadable Markdown files preserve the complete source-grounded
+                    analysis.
                 </p>
             </div>
         </div>
@@ -2528,153 +3621,335 @@ render(
     """
 )
 
-document_left, document_right = st.columns(
-    2,
-    gap="large",
+high_record_html = "".join(
+    (
+        '<div class="report-list__item">'
+        f'<strong>{escape(row["date"].strftime("%b %d"))}</strong>'
+        f' — {escape(row["observation"])}'
+        "</div>"
+    )
+    for _, row in high_records.tail(4).iterrows()
 )
 
-with document_left:
-    render(
-        f"""
-        <div class="nbb-document">
-            <div class="nbb-document__label">
-                Thirty-day observation brief
-            </div>
-            <pre>{escape(thirty_day_brief)}</pre>
-        </div>
-        """
+if not high_record_html:
+    high_record_html = (
+        '<div class="report-list__item">'
+        "No high-severity observations are currently available."
+        "</div>"
     )
 
+recent_record_html = "".join(
+    (
+        '<div class="report-list__item">'
+        f'<strong>{escape(row["date"].strftime("%b %d"))}</strong>'
+        f' · {escape(row["type"])}'
+        f' · {escape(row["severity"])}'
+        f'<br>{escape(row["observation"])}'
+        "</div>"
+    )
+    for _, row in recent_records.iterrows()
+)
+
+render(
+    f"""
+    <div class="report-grid">
+        <article class="report">
+            <div class="report__header">
+                <div class="report__eyebrow">
+                    Thirty-day observation brief
+                </div>
+
+                <div class="report__title">
+                    Recorded changes during the latest review period
+                </div>
+            </div>
+
+            <div class="report__body">
+                <div class="report-period">
+                    <div class="report-period__label">
+                        Observation period
+                    </div>
+
+                    <div class="report-period__value">
+                        {escape(review_start)} – {escape(review_end)}
+                    </div>
+                </div>
+
+                <div class="report-stat-grid">
+                    <div class="report-stat">
+                        <div class="report-stat__label">
+                            Total records
+                        </div>
+                        <div class="report-stat__value">
+                            {recent_metrics["total"]}
+                        </div>
+                    </div>
+
+                    <div class="report-stat">
+                        <div class="report-stat__label">
+                            Speech
+                        </div>
+                        <div class="report-stat__value">
+                            {recent_metrics["speech"]}
+                        </div>
+                    </div>
+
+                    <div class="report-stat">
+                        <div class="report-stat__label">
+                            Repetition
+                        </div>
+                        <div class="report-stat__value">
+                            {recent_metrics["repetition"]}
+                        </div>
+                    </div>
+
+                    <div class="report-stat">
+                        <div class="report-stat__label">
+                            High severity
+                        </div>
+                        <div class="report-stat__value">
+                            {recent_metrics["high"]}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-list">
+                    <div class="report-list__heading">
+                        Interpretation boundary
+                    </div>
+
+                    <div class="report-list__item">
+                        These figures describe the observation log.
+                        They are not cognitive scores and do not measure
+                        disease progression.
+                    </div>
+                </div>
+            </div>
+        </article>
+
+        <article class="report">
+            <div class="report__header">
+                <div class="report__eyebrow">
+                    Caregiver-clinician preparation
+                </div>
+
+                <div class="report__title">
+                    High-priority context and recent source observations
+                </div>
+            </div>
+
+            <div class="report__body">
+                <div class="report-list">
+                    <div class="report-list__heading">
+                        High-severity source records
+                    </div>
+
+                    {high_record_html}
+                </div>
+
+                <div class="report-list">
+                    <div class="report-list__heading">
+                        Most recent source records
+                    </div>
+
+                    {recent_record_html}
+                </div>
+
+                <div class="report-list">
+                    <div class="report-list__heading">
+                        Suggested clinical discussion
+                    </div>
+
+                    <div class="report-list__item">
+                        Which symptoms, routines, medication effects, sleep
+                        changes, or environmental factors should be monitored
+                        more systematically?
+                    </div>
+
+                    <div class="report-list__item">
+                        Which recommendations from this visit should the family
+                        record and review before the next appointment?
+                    </div>
+                </div>
+            </div>
+        </article>
+    </div>
+    """
+)
+
+download_one, download_two, download_three = st.columns(
+    3,
+)
+
+with download_one:
     st.download_button(
         label="Download thirty-day brief",
         data=thirty_day_brief,
-        file_name=(
-            "neuroblackbox_thirty_day_observation_brief.md"
-        ),
+        file_name="neuroblackbox_thirty_day_brief.md",
         mime="text/markdown",
         use_container_width=True,
     )
 
-with document_right:
-    render(
-        f"""
-        <div class="nbb-document">
-            <div class="nbb-document__label">
-                Caregiver-clinician preparation summary
-            </div>
-            <pre>{escape(clinician_summary)}</pre>
-        </div>
-        """
-    )
-
+with download_two:
     st.download_button(
-        label="Download clinician-preparation summary",
+        label="Download clinician summary",
         data=clinician_summary,
-        file_name=(
-            "neuroblackbox_clinician_preparation_summary.md"
-        ),
+        file_name="neuroblackbox_clinician_summary.md",
         mime="text/markdown",
         use_container_width=True,
     )
 
-st.download_button(
-    label="Download before-episode reconstruction",
-    data=before_episode_analysis,
-    file_name=(
-        "neuroblackbox_before_episode_reconstruction.md"
-    ),
-    mime="text/markdown",
-    use_container_width=True,
-)
+with download_three:
+    st.download_button(
+        label="Download episode reconstruction",
+        data=before_episode_analysis,
+        file_name="neuroblackbox_episode_reconstruction.md",
+        mime="text/markdown",
+        use_container_width=True,
+    )
 
 st.divider()
 
 
 # =============================================================================
-# Research boundary
+# Safety
 # =============================================================================
 
 render(
     """
-    <section class="nbb-section">
-        <div class="nbb-section-header">
-            <div class="nbb-section-header__index">
-                06 / RESEARCH BOUNDARY
+    <section id="safety">
+        <div class="section-header">
+            <div class="section-index">
+                08 / RESEARCH BOUNDARY
             </div>
 
             <div>
-                <h2 class="nbb-section-header__title">
+                <h2 class="section-title">
                     A continuity tool, not a diagnostic system.
                 </h2>
 
-                <p class="nbb-section-header__description">
-                    The prototype is intentionally constrained. Its reliability
-                    depends on the quality and completeness of caregiver-entered
-                    observations.
+                <p class="section-description">
+                    The prototype is intentionally constrained. Reliability
+                    depends on the quality, completeness, timing, and wording
+                    of caregiver-entered observations.
                 </p>
             </div>
         </div>
 
-        <div class="nbb-limitations">
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+        <div class="limitations-grid">
+            <article class="limitation">
+                <div class="limitation__title">
                     Caregiver-entered evidence
                 </div>
-                <div class="nbb-limitation__text">
-                    The system cannot independently verify whether an observation
-                    is complete, representative, or consistently interpreted.
+
+                <div class="limitation__copy">
+                    The system cannot independently verify whether an
+                    observation is complete, representative, or interpreted
+                    consistently.
                 </div>
             </article>
 
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+            <article class="limitation">
+                <div class="limitation__title">
                     No causal inference
                 </div>
-                <div class="nbb-limitation__text">
-                    An event occurring before an episode does not establish that
-                    it predicted or caused the episode.
+
+                <div class="limitation__copy">
+                    An observation occurring before an episode does not
+                    establish that it predicted or caused the episode.
                 </div>
             </article>
 
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+            <article class="limitation">
+                <div class="limitation__title">
                     No clinical validation
                 </div>
-                <div class="nbb-limitation__text">
+
+                <div class="limitation__copy">
                     NeuroBlackBox has not undergone clinical validation,
                     regulatory review, or medical-device assessment.
                 </div>
             </article>
 
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+            <article class="limitation">
+                <div class="limitation__title">
                     Retrieval can be incomplete
                 </div>
-                <div class="nbb-limitation__text">
+
+                <div class="limitation__copy">
                     Semantic retrieval may omit relevant records or return
-                    observations that are only weakly related to the question.
+                    observations that are only weakly related to a question.
                 </div>
             </article>
 
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+            <article class="limitation">
+                <div class="limitation__title">
                     Not an official medical record
                 </div>
-                <div class="nbb-limitation__text">
-                    Generated summaries support preparation and continuity.
+
+                <div class="limitation__copy">
+                    Generated summaries support continuity and preparation.
                     They do not replace formal clinical documentation.
                 </div>
             </article>
 
-            <article class="nbb-limitation">
-                <div class="nbb-limitation__title">
+            <article class="limitation">
+                <div class="limitation__title">
                     Human review remains essential
                 </div>
-                <div class="nbb-limitation__text">
-                    Families and qualified clinicians should review all records
-                    and decide whether further evaluation is appropriate.
+
+                <div class="limitation__copy">
+                    Families and qualified clinicians should review all
+                    records and decide whether further evaluation is appropriate.
                 </div>
             </article>
+        </div>
+    </section>
+    """
+)
+
+
+# =============================================================================
+# Closing pitch
+# =============================================================================
+
+render(
+    """
+    <section class="closing-band">
+        <div class="closing-band__grid">
+            <div>
+                <div class="closing-band__eyebrow">
+                    The NeuroBlackBox thesis
+                </div>
+
+                <h2 class="closing-band__title">
+                    Every appointment should begin with context,
+                    not reconstruction.
+                </h2>
+
+                <p class="closing-band__copy">
+                    NeuroBlackBox turns fragmented daily observations into
+                    a persistent, searchable, source-grounded memory that
+                    follows the care journey across appointments.
+                </p>
+            </div>
+
+            <div class="closing-band__actions">
+                <a class="closing-action" href="#prototype">
+                    <span>Open the live prototype</span>
+                    <span>→</span>
+                </a>
+
+                <a class="closing-action" href="#architecture">
+                    <span>Review the memory architecture</span>
+                    <span>→</span>
+                </a>
+
+                <a class="closing-action" href="#top">
+                    <span>Return to the beginning</span>
+                    <span>↑</span>
+                </a>
+            </div>
         </div>
     </section>
     """
@@ -2687,11 +3962,11 @@ render(
 
 render(
     """
-    <footer class="nbb-footer">
+    <footer class="site-footer">
         <div>
             <strong>NeuroBlackBox</strong><br>
-            Longitudinal local memory for caregiver observations and
-            clinician preparation.
+            Longitudinal local memory for cognitive-care observations
+            and clinician preparation.
         </div>
 
         <div>
