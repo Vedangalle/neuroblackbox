@@ -9,7 +9,6 @@ from memory_client import sdk_available, store_observation, search_observations
 
 DATA_PATH = Path("data/sample_observations.csv")
 
-
 st.set_page_config(
     page_title="NeuroBlackBox",
     page_icon="🧠",
@@ -204,6 +203,70 @@ def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
     return df.tail(5)
 
 
+def extract_supermemory_content(result) -> str:
+    """
+    Supermemory SDK result objects can come back nested.
+    This safely extracts the useful memory text instead of printing raw objects.
+    """
+    if isinstance(result, dict):
+        if "content" in result:
+            return str(result["content"])
+
+        chunks = result.get("chunks") or []
+        if chunks:
+            first_chunk = chunks[0]
+            if isinstance(first_chunk, dict):
+                return str(first_chunk.get("content", first_chunk))
+            return str(getattr(first_chunk, "content", first_chunk))
+
+        return str(result)
+
+    chunks = getattr(result, "chunks", None)
+    if chunks:
+        first_chunk = chunks[0]
+        return str(getattr(first_chunk, "content", first_chunk))
+
+    content = getattr(result, "content", None)
+    if content:
+        return str(content)
+
+    document = getattr(result, "document", None)
+    if document:
+        return str(document)
+
+    text = getattr(result, "text", None)
+    if text:
+        return str(text)
+
+    return str(result)
+
+
+def extract_supermemory_score(result) -> str:
+    if isinstance(result, dict):
+        score = result.get("score")
+        if score is not None:
+            return f"{float(score):.2f}"
+        return "n/a"
+
+    score = getattr(result, "score", None)
+    if score is not None:
+        try:
+            return f"{float(score):.2f}"
+        except Exception:
+            return str(score)
+
+    return "n/a"
+
+
+def clean_supermemory_content(content: str) -> str:
+    """
+    Turns our stored observation sentence into a readable memory card.
+    """
+    cleaned = content.replace("NeuroBlackBox caregiver observation. ", "")
+    cleaned = cleaned.replace("Patient: Eleanor. ", "")
+    return cleaned.strip()
+
+
 def display_supermemory_results(results: list) -> bool:
     if not results:
         return False
@@ -211,24 +274,15 @@ def display_supermemory_results(results: list) -> bool:
     st.markdown("### Supermemory Local results")
 
     for result in results:
-        content = None
+        raw_content = extract_supermemory_content(result)
+        clean_content = clean_supermemory_content(raw_content)
+        score = extract_supermemory_score(result)
 
-        if isinstance(result, dict):
-            content = (
-                result.get("content")
-                or result.get("document")
-                or result.get("text")
-                or str(result)
-            )
-        else:
-            content = (
-                getattr(result, "content", None)
-                or getattr(result, "document", None)
-                or getattr(result, "text", None)
-                or str(result)
-            )
-
-        st.success(str(content))
+        st.success(
+            f"**Source: Supermemory Local**  \n"
+            f"**Relevance:** {score}  \n\n"
+            f"{clean_content}"
+        )
 
     return True
 
@@ -263,6 +317,12 @@ if sdk_available():
     st.success("Supermemory SDK loaded. Local memory storage is available.")
 else:
     st.error("Supermemory SDK not available. Using CSV fallback only.")
+
+if "last_save_status" in st.session_state:
+    if "Supermemory Local" in st.session_state["last_save_status"]:
+        st.success(st.session_state["last_save_status"])
+    else:
+        st.warning(st.session_state["last_save_status"])
 
 left, right = st.columns([1.1, 1.4])
 
@@ -312,9 +372,13 @@ with left:
                 stored_in_memory = store_observation(memory_row)
 
                 if stored_in_memory:
-                    st.success("Observation saved to CSV and Supermemory Local.")
+                    st.session_state["last_save_status"] = (
+                        "Observation saved to CSV and Supermemory Local."
+                    )
                 else:
-                    st.warning("Observation saved to CSV, but Supermemory Local storage failed.")
+                    st.session_state["last_save_status"] = (
+                        "Observation saved to CSV, but Supermemory Local storage failed."
+                    )
 
                 st.rerun()
             else:
