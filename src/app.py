@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -8,6 +8,7 @@ from memory_client import sdk_available, store_observation, search_observations
 
 
 DATA_PATH = Path("data/sample_observations.csv")
+
 
 st.set_page_config(
     page_title="NeuroBlackBox",
@@ -60,6 +61,87 @@ def analyze_changes(df: pd.DataFrame) -> dict:
             ["repeated", "repeat", "same question", "same story", "asked the same"],
         ),
     }
+
+
+def generate_before_episode_analysis(df: pd.DataFrame, days_before: int = 10) -> str:
+    if df.empty:
+        return "No observations available yet."
+
+    high_episodes = df[(df["type"] == "episode") & (df["severity"] == "high")]
+
+    if high_episodes.empty:
+        return (
+            "No high-severity episode is currently logged. "
+            "Add an episode with severity set to high to generate a pre-episode analysis."
+        )
+
+    latest_episode = high_episodes.sort_values("date").iloc[-1]
+    episode_date = latest_episode["date"]
+    window_start = episode_date - timedelta(days=days_before)
+
+    before_df = df[
+        (df["date"] >= window_start)
+        & (df["date"] < episode_date)
+    ].sort_values("date")
+
+    analysis = []
+    analysis.append("Before Bad Episode Analysis")
+    analysis.append("")
+    analysis.append(
+        f"Latest high-severity episode: {episode_date.strftime('%b %d, %Y')}"
+    )
+    analysis.append(f"Episode note: {latest_episode['observation']}")
+    analysis.append("")
+    analysis.append(
+        f"Observation window reviewed: {window_start.strftime('%b %d, %Y')} "
+        f"to {episode_date.strftime('%b %d, %Y')}."
+    )
+    analysis.append("")
+
+    if before_df.empty:
+        analysis.append("No observations were logged in the days before this episode.")
+        analysis.append("")
+        analysis.append(
+            "Clinician-safe framing: this does not mean there were no warning signs. "
+            "It only means no source observations were recorded in the current log."
+        )
+        return "\n".join(analysis)
+
+    metrics = analyze_changes(before_df)
+
+    analysis.append("Signals noticed before the episode:")
+    analysis.append(f"- Speech-related observations: {metrics['speech_events']}")
+    analysis.append(f"- Repetition-related observations: {metrics['repetition_events']}")
+    analysis.append(f"- Routine disruption observations: {metrics['routine_events']}")
+    analysis.append(f"- Pause / word-finding mentions: {metrics['pause_mentions']}")
+    analysis.append(f"- Repetition mentions: {metrics['repetition_mentions']}")
+    analysis.append("")
+
+    analysis.append("Source observations before the episode:")
+    for _, row in before_df.iterrows():
+        date = row["date"].strftime("%b %d")
+        analysis.append(
+            f"- {date} ({row['type']}, {row['severity']}): {row['observation']}"
+        )
+
+    analysis.append("")
+    analysis.append("Possible caregiver discussion points:")
+    if metrics["repetition_events"] > 0 or metrics["repetition_mentions"] > 0:
+        analysis.append("- Repeated questions or repeated stories appeared before the episode.")
+    if metrics["speech_events"] > 0 or metrics["pause_mentions"] > 0:
+        analysis.append("- Speech pauses or word-finding difficulty appeared before the episode.")
+    if metrics["routine_events"] > 0:
+        analysis.append("- Routine disruptions appeared before the episode.")
+    if metrics["speech_events"] == 0 and metrics["repetition_events"] == 0 and metrics["routine_events"] == 0:
+        analysis.append("- No obvious speech, repetition, or routine pattern was detected in the logged window.")
+
+    analysis.append("")
+    analysis.append(
+        "Clinician-safe framing: this is not a diagnosis or prediction. "
+        "It is a source-grounded observation timeline to help a family discuss changes with a clinician."
+    )
+
+    return "\n".join(analysis)
 
 
 def generate_doctor_summary(df: pd.DataFrame) -> str:
@@ -180,6 +262,13 @@ def generate_change_brief(df: pd.DataFrame) -> str:
 def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
     question_lower = question.lower()
 
+    if any(word in question_lower for word in ["before", "bad episode", "last episode"]):
+        high_episodes = df[(df["type"] == "episode") & (df["severity"] == "high")]
+        if high_episodes.empty:
+            return df.tail(5)
+        latest_date = high_episodes.sort_values("date").iloc[-1]["date"]
+        return df[(df["date"] < latest_date) & (df["date"] >= latest_date - timedelta(days=10))]
+
     if any(word in question_lower for word in ["pause", "speech", "word", "speaking"]):
         return df[df["type"].isin(["speech"])]
 
@@ -194,7 +283,7 @@ def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
     if any(word in question_lower for word in ["routine", "medication", "walk", "kettle"]):
         return df[df["type"].isin(["routine", "episode"])]
 
-    if any(word in question_lower for word in ["bad episode", "episode", "confused", "high"]):
+    if any(word in question_lower for word in ["episode", "confused", "high"]):
         return df[(df["type"] == "episode") | (df["severity"] == "high")]
 
     if any(word in question_lower for word in ["doctor", "clinician", "bring up"]):
@@ -204,10 +293,6 @@ def simple_recall(df: pd.DataFrame, question: str) -> pd.DataFrame:
 
 
 def extract_supermemory_content(result) -> str:
-    """
-    Supermemory SDK result objects can come back nested.
-    This safely extracts the useful memory text instead of printing raw objects.
-    """
     if isinstance(result, dict):
         if "content" in result:
             return str(result["content"])
@@ -259,9 +344,6 @@ def extract_supermemory_score(result) -> str:
 
 
 def clean_supermemory_content(content: str) -> str:
-    """
-    Turns our stored observation sentence into a readable memory card.
-    """
     cleaned = content.replace("NeuroBlackBox caregiver observation. ", "")
     cleaned = cleaned.replace("Patient: Eleanor. ", "")
     return cleaned.strip()
@@ -387,10 +469,14 @@ with left:
     st.subheader("Ask NeuroBlackBox")
     question = st.text_input(
         "Question",
-        placeholder="What changed over the last 30 days?",
+        placeholder="What did we notice before the last bad episode?",
     )
 
     if question:
+        if any(term in question.lower() for term in ["before", "bad episode", "last episode"]):
+            st.markdown("### Before Bad Episode Analysis")
+            st.code(generate_before_episode_analysis(df), language="markdown")
+
         supermemory_results = search_observations(question, limit=5)
 
         used_supermemory = display_supermemory_results(supermemory_results)
@@ -425,6 +511,10 @@ with right:
         hide_index=True,
     )
 
+    st.markdown("### Before Bad Episode Analysis")
+    before_episode_analysis = generate_before_episode_analysis(df)
+    st.code(before_episode_analysis, language="markdown")
+
     st.markdown("### 30-day change brief")
     st.code(generate_change_brief(df), language="markdown")
 
@@ -436,5 +526,12 @@ with right:
         label="Download doctor-prep summary",
         data=doctor_summary,
         file_name="neuroblackbox_doctor_prep_summary.md",
+        mime="text/markdown",
+    )
+
+    st.download_button(
+        label="Download before-episode analysis",
+        data=before_episode_analysis,
+        file_name="neuroblackbox_before_episode_analysis.md",
         mime="text/markdown",
     )
