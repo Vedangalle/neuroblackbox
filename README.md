@@ -8,7 +8,7 @@ NeuroBlackBox preserves caregiver-reported observations across the interval betw
 
 <br>
 
-[![Python](https://img.shields.io/badge/Python-3.11%2B-1f6feb?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-1f6feb?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.59.1-ff4b4b?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Supermemory](https://img.shields.io/badge/Supermemory-Local-10151c?style=flat-square)](https://supermemory.ai/)
 [![Pandas](https://img.shields.io/badge/Pandas-3.0.3-150458?style=flat-square&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
@@ -69,7 +69,7 @@ The objective is not to infer a diagnosis. The objective is to preserve enough c
 
 ```mermaid
 flowchart LR
-    A["Daily life<br/>Symptoms, routines, context"] --> B["Clinical visit<br/>Retrospective discussion"]
+    A["Daily life<br/>Caregiver-reported observations"] --> B["Clinical visit<br/>Retrospective discussion"]
     B --> C["Follow-up<br/>Recommendations and monitoring"]
 
     A -. "details may be forgotten" .-> C
@@ -92,14 +92,14 @@ flowchart LR
 | Capability | Prototype implementation |
 |---|---|
 | Observation capture | Structured Streamlit input for dated caregiver observations |
-| Transparent persistence | Local CSV record using an interpretable schema |
-| Semantic memory | Supermemory Local container scoped to the prototype |
+| Transparent persistence | Ignored runtime CSV initialized from an immutable synthetic seed |
+| Semantic memory | Health-gated Supermemory reconciliation using deterministic record IDs |
 | Question answering | Conservative deterministic synthesis from recorded evidence |
 | Evidence retrieval | Ranked semantic source records from Supermemory Local |
 | Temporal reconstruction | Review of observations preceding a selected high-severity episode |
 | Longitudinal summaries | Thirty-day observation brief |
 | Clinical preparation | Downloadable caregiver-clinician preparation document |
-| Failure tolerance | Deterministic local recall when semantic retrieval is unavailable |
+| Failure tolerance | Verified Online status or deterministic Local fallback |
 | Safety framing | Explicit limits around diagnosis, prediction, causation, and treatment |
 
 ---
@@ -120,10 +120,12 @@ A caregiver enters a direct observation with:
 
 ### 2. Remember
 
-The observation is written to:
+The observation is written to the ignored local runtime record. When the
+Supermemory health probe succeeds, it is also reconciled into the configured
+semantic-memory container using a deterministic ID.
 
-- the local CSV record
-- the Supermemory Local semantic-memory container
+- local persistence remains available if Supermemory is offline
+- resubmitting the same exact record does not create a duplicate
 
 ### 3. Ask
 
@@ -244,7 +246,8 @@ flowchart LR
     end
 
     subgraph Persistence["Persistence layer"]
-        CSV[("Local CSV<br/>sample_observations.csv")]
+        SEED[("Tracked fictional seed<br/>sample_observations.csv")]
+        CSV[("Ignored runtime record<br/>runtime_observations.csv")]
         MC["memory_client.py"]
         SM[("Supermemory Local<br/>localhost:6767")]
     end
@@ -265,8 +268,9 @@ flowchart LR
         C["Clinician-preparation documents"]
     end
 
+    SEED -->|first launch| CSV
     F --> CSV
-    F --> MC
+    CSV --> MC
     MC --> SM
 
     Q --> DR
@@ -334,12 +338,16 @@ sequenceDiagram
     Caregiver->>Form: Enter dated observation
     Form->>App: Submit structured record
 
-    App->>CSV: Normalize and append
+    App->>CSV: Normalize, deduplicate, and save
     CSV-->>App: Local persistence confirmed
 
-    App->>Client: Serialize observation
-    Client->>SM: Store in scoped memory container
-    SM-->>Client: Write confirmation
+    App->>Client: Check configured service
+    alt Verified connection
+        Client->>SM: Upsert using deterministic custom ID
+        SM-->>Client: Submission accepted
+    else Service unavailable
+        App-->>Caregiver: Continue in Local fallback
+    end
 
     App-->>Caregiver: Save status
 ```
@@ -368,8 +376,10 @@ src/app.py
 │   └── empty-frame construction
 │
 ├── data access
-│   ├── CSV loading
+│   ├── synthetic seed-to-runtime initialization
+│   ├── runtime CSV loading
 │   ├── schema normalization
+│   ├── exact-record deduplication
 │   ├── date parsing
 │   ├── local persistence
 │   └── Streamlit cache invalidation
@@ -415,6 +425,8 @@ src/app.py
 ├── session state
 │   ├── query presets
 │   ├── save status
+│   ├── health-probe state
+│   ├── signature-gated memory reconciliation
 │   └── rerun behavior
 │
 └── product interface
@@ -439,11 +451,14 @@ src/memory_client.py
 ├── API-key configuration
 ├── container-tag configuration
 ├── Supermemory client initialization
+├── bounded read-only connection probe
+├── deterministic custom-ID generation
 ├── observation serialization
-├── semantic-memory writes
+├── idempotent semantic-memory writes
+├── runtime-record reconciliation
 ├── semantic search
 ├── result normalization
-└── connection availability checks
+└── sanitized failure reporting
 ```
 
 This separation allows the Streamlit application to retain deterministic local behavior even when the semantic-memory service is unavailable.
@@ -451,6 +466,13 @@ This separation allows the Streamlit application to retain deterministic local b
 ---
 
 ## Data architecture
+
+`data/sample_observations.csv` is a wholly fictional, synthetic, immutable
+seed used only to initialize a first-run local record. The application never
+writes caregiver entries to the tracked seed. On first launch it creates
+`data/runtime_observations.csv`; all runtime entries are saved there, and that
+file is ignored by Git. Exact duplicate records are suppressed during
+normalization.
 
 Each source observation follows a small interpretable schema.
 
@@ -480,7 +502,12 @@ The schema is intentionally small so that:
 
 ## Memory architecture
 
-Every observation is represented in two forms.
+The ignored runtime CSV is the canonical local record. When Supermemory Local
+passes its health probe, session reconciliation projects each runtime record
+into the configured container using a deterministic custom ID. The same exact
+record resolves to the same semantic-memory ID instead of creating another
+copy. When the service is unavailable, the app remains usable in Local
+fallback.
 
 ### Local structured record
 
@@ -508,8 +535,11 @@ The semantic representation improves natural-language retrieval while preserving
 A container tag scopes the memory used by this prototype:
 
 ```text
-NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor
+NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor_v2
 ```
+
+The `v2` suffix creates a clean release-demo namespace. Existing data in an
+older container is isolated and is not deleted.
 
 For a production system, container design would require a formal identity, authorization, tenancy, and data-governance model.
 
@@ -576,7 +606,11 @@ Jun 25 — Repetition: Asked whether her son had called five times.
 Jun 28 — Speech: Longer pauses while searching for simple words.
 ```
 
-The output is a reconstruction of what was recorded before an event. It is not a warning-sign detector.
+The output reconstructs the source record before an event without making a
+predictive claim.
+
+**These observations were recorded before the episode.** Temporal proximity
+does not establish prediction or causation.
 
 ---
 
@@ -625,8 +659,10 @@ These documents support preparation and continuity. They are not formal medical 
 ```text
 neuroblackbox/
 ├── data/
-│   └── sample_observations.csv
-│       Sample longitudinal caregiver-observation record
+│   ├── sample_observations.csv
+│   │   Immutable fictional synthetic seed
+│   └── runtime_observations.csv
+│       Generated local record (ignored by Git)
 │
 ├── docs/
 │   ├── demo_script.md
@@ -648,6 +684,11 @@ neuroblackbox/
 │   └── memory_client.py
 │       Supermemory Local adapter
 │
+├── tests/
+│   └── test_release_hardening.py
+│       Data, memory-adapter, and Streamlit regression tests
+│
+├── .env.example
 ├── .gitignore
 ├── README.md
 └── requirements.txt
@@ -674,7 +715,7 @@ Pinned runtime dependencies are listed in `requirements.txt`.
 Key versions used by the prototype:
 
 ```text
-Python          3.11+
+Python          3.12+
 Streamlit       1.59.1
 Pandas          3.0.3
 Supermemory SDK 3.50.0
@@ -688,7 +729,7 @@ Supermemory SDK 3.50.0
 
 Install:
 
-- Python 3.11 or newer
+- Python 3.12 or newer
 - Node.js and `npx`
 - Git
 
@@ -709,21 +750,24 @@ pip install -r requirements.txt
 
 ### 3. Configure the environment
 
-Create `.env` in the repository root:
+Copy the safe configuration template:
 
 ```bash
-touch .env
+cp .env.example .env
 ```
 
-Add:
+Confirm these values in the ignored `.env`:
 
 ```dotenv
 SUPERMEMORY_API_URL=http://localhost:6767
-SUPERMEMORY_API_KEY=sm_your_local_key
-NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor
+SUPERMEMORY_API_KEY=local
+NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor_v2
 ```
 
 Use the local key provided by your Supermemory Local setup.
+
+The `v2` tag is a clean fictional demo namespace. Changing container tags
+isolates old memory; it does not delete it.
 
 Do not commit `.env` or expose its contents.
 
@@ -759,6 +803,23 @@ Open:
 http://localhost:8501
 ```
 
+On first launch, the app copies the immutable synthetic seed into the ignored
+runtime record. It reports `Supermemory: Online` only after a real read-only
+service probe succeeds; otherwise it remains fully usable in `Local fallback`.
+
+### 6. Run the release preflight
+
+In the NeuroBlackBox project terminal:
+
+```bash
+python -m unittest discover -s tests -v
+git check-ignore -v data/runtime_observations.csv
+git diff --check
+```
+
+Do not claim semantic storage during a demo unless the interface reports
+`Supermemory: Online`.
+
 ---
 
 ## Runtime topology
@@ -772,10 +833,15 @@ Browser
 Streamlit application
 localhost:8501
   │
-  ├── Local CSV
+  ├── Synthetic seed (tracked, read-only)
   │   data/sample_observations.csv
-  │
-  └── Supermemory Local
+  │          │ first launch
+  │          ▼
+  ├── Runtime record (ignored, read/write)
+  │   data/runtime_observations.csv
+  │          │ health-gated reconciliation
+  │          ▼
+  └── Supermemory Local (when verified Online)
       localhost:6767
 ```
 
@@ -796,6 +862,11 @@ Show the landing page and the longitudinal-memory architecture.
 ### 0:50–1:15 — Record
 
 Add one direct caregiver observation.
+
+Exact-record deduplication and deterministic memory IDs make the scripted
+entry repeat-safe. For a completely clean semantic demonstration, choose a
+fresh container suffix; old container data remains isolated and is not
+deleted.
 
 ### 1:15–1:55 — Ask
 
@@ -918,7 +989,11 @@ Cognitive-care observations can contain sensitive family, behavioral, medication
 - [x] Research-oriented product website
 - [x] Structured observation capture
 - [x] Local CSV persistence
+- [x] Immutable synthetic seed and ignored runtime record
+- [x] Exact-record deduplication
 - [x] Supermemory Local write integration
+- [x] Health-probed Online/Local fallback state
+- [x] Idempotent startup/session reconciliation
 - [x] Supermemory Local semantic search
 - [x] Deterministic retrieval fallback
 - [x] Grounded direct-answer layer
@@ -932,6 +1007,7 @@ Cognitive-care observations can contain sensitive family, behavioral, medication
 - [x] Downloadable Markdown reports
 - [x] Research and safety boundaries
 - [x] Responsive vendor-facing interface
+- [x] Built-in release-hardening regression tests
 
 ### Hackathon hardening
 
@@ -940,7 +1016,6 @@ Cognitive-care observations can contain sensitive family, behavioral, medication
 - [ ] Record final three-minute demo
 - [ ] Verify every preset question
 - [ ] Verify write, retrieval, and report-download flows
-- [ ] Add lightweight automated tests for analysis functions
 
 ---
 

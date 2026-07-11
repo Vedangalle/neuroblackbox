@@ -2,7 +2,8 @@
 
 ## 1. Core Thesis
 
-NeuroBlackBox is a local-first cognitive change memory for caregivers.
+NeuroBlackBox is a local-first longitudinal memory system for
+caregiver-reported cognitive-care observations.
 
 The product does not attempt to diagnose dementia, Alzheimer’s disease, or any medical condition. Instead, it solves a narrower and more realistic problem:
 
@@ -63,15 +64,15 @@ This is the product gap NeuroBlackBox targets.
 
 ## 4. Product Wedge
 
-The initial wedge is doctor-prep.
+The initial wedge is clinician preparation.
 
 NeuroBlackBox does not need to replace clinical systems, electronic health records, or diagnostic tools.
 
-It only needs to become the best way for a caregiver to prepare for a doctor conversation.
+It only needs to become the best way for a caregiver to prepare for a clinician conversation.
 
 The narrow job-to-be-done is:
 
-> Help me remember what changed, organize it clearly, and bring the right observations to the doctor.
+> Help me preserve what was observed, organize it clearly, and bring the source record to the clinician.
 
 ## 5. Why Local-First
 
@@ -87,6 +88,13 @@ A local-first architecture is important because it creates a stronger trust mode
 - the user has more control over sensitive family context
 
 Supermemory Local is valuable because it gives NeuroBlackBox a local memory layer that can store and retrieve observations without turning the product into a cloud-first data collection system.
+
+The repository ships only a fictional synthetic seed. First launch copies that
+seed into an ignored runtime record, and all new entries remain in that runtime
+file. When a bounded health probe verifies Supermemory Local, the app projects
+runtime observations into semantic memory using deterministic IDs. Local-first
+does not by itself provide encryption, access control, clinical compliance, or
+production authorization.
 
 ## 6. Why Memory Is the Right Primitive
 
@@ -121,14 +129,16 @@ The product should feel calm, careful, and useful.
 
 ## 8. Core User Flow
 
-1. A caregiver notices something.
-2. They log a short observation.
-3. NeuroBlackBox stores it locally.
-4. Over time, observations accumulate.
-5. The caregiver asks a question before an appointment.
-6. NeuroBlackBox retrieves relevant observations.
-7. The app generates a clinician-safe summary.
-8. The caregiver brings the summary to the doctor.
+1. First launch initializes an ignored runtime record from the fictional seed.
+2. A caregiver logs a short source observation.
+3. NeuroBlackBox saves it only to the local runtime record.
+4. Exact duplicate records are suppressed.
+5. When Supermemory is verified Online, session reconciliation submits records
+   with deterministic IDs; otherwise the app remains in Local fallback.
+6. The caregiver asks a question before an appointment.
+7. NeuroBlackBox retrieves relevant source observations.
+8. The app generates a bounded clinician-preparation summary.
+9. The caregiver brings the source-grounded summary to the clinician.
 
 ## 9. Key Product Questions
 
@@ -150,9 +160,11 @@ Surfaces repetition-related observations.
 
 Surfaces medication, navigation, household, sleep, or routine disruptions.
 
-### What did we notice before the last bad episode?
+### What was recorded before the latest high-severity episode?
 
-Finds the latest high-severity episode and reviews observations in the days before it.
+Finds the latest high-severity episode and reviews observations in the days
+before it. **These observations were recorded before the episode.** Their
+sequence does not establish prediction or causation.
 
 ### What should I bring up to a doctor?
 
@@ -178,7 +190,7 @@ It should:
 - preserve source context
 - summarize changes
 - support caregiver recall
-- prepare doctor discussion questions
+- prepare clinician discussion questions
 - clearly state that outputs are not diagnosis or medical advice
 
 ## 11. Differentiation
@@ -189,10 +201,10 @@ It is different because it is organized around:
 
 - caregiver observation capture
 - local memory retrieval
-- cognitive and routine change patterns
-- before-episode analysis
-- doctor-prep summaries
-- clinician-safe language
+- descriptive cognitive-care and routine patterns
+- before-episode reconstruction
+- clinician-preparation summaries
+- bounded interpretation language
 
 NeuroBlackBox is also not a diagnostic AI.
 
@@ -205,13 +217,14 @@ The product is useful because it does less than a medical AI, but does that narr
 The current prototype demonstrates:
 
 - Streamlit caregiver dashboard
-- local CSV fallback storage
+- immutable fictional seed and ignored runtime storage
 - Supermemory Local integration
-- observation memory writes
+- verified Online/Local fallback state
+- deterministic-ID reconciliation
 - Supermemory-based retrieval
 - 30-day change brief
-- before bad episode analysis
-- doctor-prep summary export
+- before-episode reconstruction
+- clinician-preparation summary export
 - explicit medical safety framing
 
 ## 13. Future Product Direction

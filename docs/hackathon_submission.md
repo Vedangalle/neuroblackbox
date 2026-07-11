@@ -1,135 +1,144 @@
 # NeuroBlackBox Hackathon Submission
 
-## Project Name
+## Project name
 
 NeuroBlackBox
 
-## One-Liner
+## One-liner
 
-A local-first cognitive change memory that helps caregivers turn scattered observations into source-grounded doctor-prep summaries.
+A local-first longitudinal memory system that turns caregiver-reported
+observations into source-grounded clinician-preparation summaries.
 
-## Built For
+## Built for
 
-Supermemory Local `<localhost:6767>` hackathon.
+The Supermemory Local hackathon using a local service at `localhost:6767`.
 
 ## Problem
 
-Caregivers often notice meaningful cognitive or routine changes before a doctor visit, but those observations are scattered across memory, family conversations, texts, and notes.
+Caregiver-reported cognitive-care context is created during ordinary life:
+speech pauses, repeated questions, disrupted routines, medication-related
+observations, navigation confusion, improvements, and significant episodes.
 
-By the time the appointment arrives, the caregiver may only remember:
+At the next clinical visit, weeks of dated context may be compressed into a
+fragmented recollection. Families need continuity, not software pretending to
+make a diagnosis.
 
-> Something feels different.
+## What it does
 
-That is emotionally real, but hard to act on.
+NeuroBlackBox lets a caregiver record dated source observations and ask:
 
-NeuroBlackBox turns scattered observations into a structured memory timeline.
+- What changed during the latest review period?
+- How have repeated questions changed?
+- What speech pauses or word-finding changes were recorded?
+- What was recorded before the latest high-severity episode?
+- Which source observations should be discussed at the next appointment?
 
-## What It Does
+The app produces conservative answers, evidence periods, original source
+records, before-episode reconstruction, and downloadable clinician-preparation
+documents.
 
-NeuroBlackBox lets caregivers log observations such as:
+## Local data and Supermemory integration
 
-- speech pauses
-- word-finding difficulty
-- repeated questions
-- routine disruptions
-- missed medication routines
-- high-severity confusion episodes
+The public repository contains an immutable, fictional synthetic seed. On first
+launch, the app copies it into an ignored runtime CSV. Every new entry is saved
+only to that local runtime record.
 
-The app then helps answer:
+The app performs a bounded read-only service probe. Only a successful probe
+produces the `Online` state. When Online, startup/session reconciliation submits
+each runtime observation to the configured Supermemory container using a
+deterministic custom ID. The same exact observation resolves to the same ID,
+making reconciliation and repeated demos idempotent.
 
-- What changed over the last 30 days?
-- Are pauses increasing?
-- Are repeated questions increasing?
-- What routines are breaking?
-- What did we notice before the last bad episode?
-- What should we bring up to a doctor?
+If the service is unavailable, the interface explicitly reports `Local
+fallback`; deterministic retrieval and report generation remain available from
+the runtime record.
 
-## Supermemory Local Integration
+Each semantic record retains:
 
-NeuroBlackBox uses Supermemory Local as the local memory layer.
-
-Each caregiver observation is stored with structured metadata:
-
-- patient
-- date
-- observation type
-- severity
+- fictional patient identity
+- observation date
+- category
+- caregiver-recorded severity
 - source
-- observation text
+- original observation text
+- deterministic observation ID
 
-When the caregiver asks a question, the app searches Supermemory Local and returns relevant memory cards.
+## Main demo moment
 
-This makes the app more than a static dashboard. It becomes a local memory system for sensitive caregiver context.
+The strongest question is:
 
-## Main Demo Moment
+> What was recorded before the latest high-severity episode?
 
-The strongest demo question is:
+NeuroBlackBox identifies the latest observation categorized as a high-severity
+episode, selects a fixed preceding interval, orders its source observations, and
+reports descriptive category counts.
 
-> What did we notice before the last bad episode?
+The output states:
 
-NeuroBlackBox identifies the latest high-severity episode, reviews the observations before it, and generates a clinician-safe pre-episode timeline.
+> These observations were recorded before the episode.
 
-Example output:
+It then makes the interpretation boundary explicit: temporal sequence does not
+establish prediction or causation.
 
-- Jun 22: routine disruption
-- Jun 25: repeated question
-- Jun 28: speech pauses and word-finding frustration
-- Jun 30: high-severity evening confusion episode
+## Why it matters
 
-The app does not claim diagnosis or prediction. It shows the source-grounded observation pattern.
+Families should not have to remember every detail at once. A persistent,
+inspectable record can make the next clinician conversation more concrete while
+keeping the original source observations visible for human review.
 
-## Why It Matters
+## Key features
 
-Families do not need software pretending to be a doctor.
-
-They need a system that helps them remember what happened, organize it clearly, and bring useful observations to the actual doctor.
-
-NeuroBlackBox is designed for that gap.
-
-## Key Features
-
-- Local caregiver observation logging
-- Supermemory Local memory storage
-- Supermemory Local search
-- Readable memory result cards
-- 30-day change brief
-- Before bad episode analysis
-- Doctor-prep summary
+- Fictional synthetic seed separated from ignored runtime data
+- Structured caregiver-observation capture
+- Supermemory Local health probe and transparent fallback state
+- Deterministic custom IDs and idempotent reconciliation
+- Semantic retrieval with visible source records
+- Deterministic local retrieval fallback
+- Grounded answers with evidence periods and interpretation boundaries
+- Thirty-day observation brief
+- Before-episode reconstruction
+- Clinician-preparation summary
 - Markdown downloads
-- Explicit medical safety framing
+- Built-in release-hardening regression tests
 
-## Safety Boundary
+## Safety boundary
 
-NeuroBlackBox does not diagnose, treat, screen, or predict Alzheimer’s, dementia, or any medical condition.
+NeuroBlackBox does not diagnose, treat, screen, or predict Alzheimer’s,
+dementia, or any medical condition. It does not assign disease risk, establish
+causation, recommend treatment, replace a clinician, or replace an official
+medical record.
 
-It organizes caregiver observations so families can discuss concrete changes with a clinician.
+It organizes caregiver-reported observations for human review and clinician
+preparation.
 
-## Technical Stack
+## Privacy boundary
 
-- Python
+All names and records shipped in the repository are fictional and synthetic.
+The runtime CSV is ignored by Git. Local-first execution reduces unnecessary
+data movement for this prototype, but it does not by itself provide encryption,
+access control, identity governance, clinical compliance, or production
+authorization.
+
+## Technical stack
+
+- Python 3.12+
 - Streamlit
 - Pandas
 - Supermemory Python SDK
 - Supermemory Local
+- Built-in `unittest` release checks
 
-## Future Direction
+## Future direction
 
-Future versions could support:
+Potential future work includes multi-caregiver records, explicit clinical-visit
+objects, appointment-preparation packets, voice-note ingestion, provenance-aware
+reports, encrypted storage, role-based access, and formal usability or clinical
+validation research.
 
-- voice note ingestion
-- multi-caregiver timelines
-- appointment-prep packets
-- clinician handoff summaries
-- routine and medication tracking
-- privacy-preserving family memory vaults
-- longitudinal trend charts
+These are research directions, not current product claims.
 
 ## Closing
 
-NeuroBlackBox is a black box for human cognitive change observations.
-
-Not a diagnostic black box.
-
-A memory black box.
-
-A way for families to preserve the small signals that are easy to forget but important to discuss.
+NeuroBlackBox is a longitudinal record for caregiver-reported cognitive-care
+observations: local-first, source-grounded, inspectable, and intentionally
+bounded.

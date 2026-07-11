@@ -18,3 +18,6 @@ env/
 
 # Local exports
 exports/
+
+# Generated runtime caregiver record
+/data/runtime_observations.csv

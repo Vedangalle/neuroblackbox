@@ -1,17 +1,15 @@
 date,type,severity,source,observation
 2026-06-01,speech,low,caregiver,Normal conversation. No major pauses. Remembered breakfast and appointment clearly.
-2026-06-04,routine,low,caregiver,Asked what day it was twice in the afternoon.
+2026-06-04,repetition,low,caregiver,Asked what day it was twice in the afternoon.
 2026-06-07,speech,medium,caregiver,Longer pauses while trying to remember neighbor's name. Used 'that person next door' instead.
-2026-06-10,routine,medium,caregiver,Missed evening medication until reminded.
+2026-06-10,medication,medium,caregiver,Missed evening medication until reminded.
 2026-06-13,repetition,medium,caregiver,Asked the same question about the doctor's appointment three times within one hour.
 2026-06-16,speech,medium,caregiver,Repeated the same story from the morning during dinner. More filler words than usual.
-2026-06-19,episode,high,caregiver,Became confused while returning from usual short walk and called for help.
+2026-06-19,navigation,high,caregiver,Became confused while returning from usual short walk and called for help.
 2026-06-22,routine,medium,caregiver,Left tea kettle on after leaving kitchen.
 2026-06-25,repetition,high,caregiver,Repeated question about whether son had called five times in one afternoon.
 2026-06-28,speech,medium,caregiver,Long pauses and visible frustration while searching for simple words.
 2026-06-30,episode,high,caregiver,Evening confusion episode. Did not recognize why medication box was on table.
-2026-07-09,speech,low,caregiver,Asked the same question about lunch four times within 20 minutes and seemed frustrated when corrected.
-2026-07-09,speech,low,caregiver,Asked the same question about lunch four times within 20 minutes and seemed frustrated when corrected.
-2026-07-09,speech,medium,caregiver,Took longer than usual to answer simple questions and paused several times while trying to remember a familiar name.
+2026-07-09,repetition,low,caregiver,Asked the same question about lunch four times within 20 minutes and seemed frustrated when corrected.
 2026-07-09,speech,medium,caregiver,Took longer than usual to answer simple questions and paused several times while trying to remember a familiar name.
 2026-07-09,repetition,medium,caregiver,"Asked whether the family had dinner three times within 30 minutes, even after being reminded."

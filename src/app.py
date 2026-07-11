@@ -4,14 +4,18 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 import html
+import os
+import re
+import shutil
 
 import pandas as pd
 import streamlit as st
 
 from memory_client import (
-    sdk_available,
+    check_connection,
     search_observations,
     store_observation,
+    sync_observations,
 )
 
 
@@ -26,7 +30,24 @@ APP_DESCRIPTION = (
     "and clinician preparation."
 )
 
-DATA_PATH = Path("data/sample_observations.csv")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SEED_DATA_PATH = REPOSITORY_ROOT / "data" / "sample_observations.csv"
+DEFAULT_RUNTIME_DATA_PATH = (
+    REPOSITORY_ROOT / "data" / "runtime_observations.csv"
+)
+
+configured_data_path = Path(
+    os.getenv(
+        "NEUROBLACKBOX_DATA_PATH",
+        str(DEFAULT_RUNTIME_DATA_PATH),
+    )
+).expanduser()
+
+DATA_PATH = (
+    configured_data_path
+    if configured_data_path.is_absolute()
+    else REPOSITORY_ROOT / configured_data_path
+)
 
 OBSERVATION_COLUMNS = [
     "date",
@@ -92,6 +113,44 @@ def empty_observation_frame() -> pd.DataFrame:
 # Data loading and persistence
 # =============================================================================
 
+
+class ObservationDataError(RuntimeError):
+    """Raised when the local observation record cannot be initialized/read."""
+
+
+def ensure_runtime_data() -> None:
+    runtime_path = DATA_PATH.resolve()
+    seed_path = SEED_DATA_PATH.resolve()
+
+    if runtime_path == seed_path:
+        raise ObservationDataError(
+            "NEUROBLACKBOX_DATA_PATH must not point to the tracked "
+            "synthetic seed. Choose a separate local runtime file."
+        )
+
+    if DATA_PATH.exists():
+        return
+
+    if not SEED_DATA_PATH.exists():
+        raise ObservationDataError(
+            f"Synthetic seed data was not found at {SEED_DATA_PATH}."
+        )
+
+    try:
+        DATA_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        shutil.copy2(
+            SEED_DATA_PATH,
+            DATA_PATH,
+        )
+    except OSError as exc:
+        raise ObservationDataError(
+            f"Could not initialize the local runtime record at {DATA_PATH}."
+        ) from exc
+
+
 def normalize_observation_frame(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -140,6 +199,11 @@ def normalize_observation_frame(
         .str.lower()
     )
 
+    normalized = normalized.drop_duplicates(
+        subset=OBSERVATION_COLUMNS,
+        keep="first",
+    )
+
     return normalized.sort_values(
         by="date",
         ascending=True,
@@ -156,15 +220,18 @@ def load_data(
 ) -> pd.DataFrame:
     del modified_time
 
-    if not DATA_PATH.exists():
-        return empty_observation_frame()
-
     try:
         frame = pd.read_csv(
             DATA_PATH,
         )
-    except Exception:
-        return empty_observation_frame()
+    except (
+        OSError,
+        UnicodeError,
+        pd.errors.ParserError,
+    ) as exc:
+        raise ObservationDataError(
+            f"Could not read the local runtime record at {DATA_PATH}."
+        ) from exc
 
     return normalize_observation_frame(
         frame,
@@ -172,6 +239,8 @@ def load_data(
 
 
 def get_data() -> pd.DataFrame:
+    ensure_runtime_data()
+
     modified_time = (
         DATA_PATH.stat().st_mtime
         if DATA_PATH.exists()
@@ -204,6 +273,32 @@ def save_data(
     load_data.clear()
 
 
+def memory_rows(
+    df: pd.DataFrame,
+) -> list[dict[str, str]]:
+    prepared = normalize_observation_frame(df).copy()
+
+    if prepared.empty:
+        return []
+
+    prepared["date"] = prepared["date"].dt.strftime(
+        "%Y-%m-%d",
+    )
+
+    return prepared[OBSERVATION_COLUMNS].to_dict(
+        orient="records",
+    )
+
+
+def memory_data_signature(
+    rows: list[dict[str, str]],
+) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        tuple(str(row.get(column, "")) for column in OBSERVATION_COLUMNS)
+        for row in rows
+    )
+
+
 # =============================================================================
 # Descriptive analysis
 # =============================================================================
@@ -212,14 +307,25 @@ def keyword_count(
     text: str,
     keywords: list[str],
 ) -> int:
-    normalized = text.lower()
-
-    return sum(
-        normalized.count(
-            keyword.lower(),
-        )
-        for keyword in keywords
+    alternatives = sorted(
+        {
+            re.escape(keyword.lower())
+            for keyword in keywords
+            if keyword
+        },
+        key=len,
+        reverse=True,
     )
+
+    if not alternatives:
+        return 0
+
+    pattern = re.compile(
+        "|".join(alternatives),
+        flags=re.IGNORECASE,
+    )
+
+    return sum(1 for _ in pattern.finditer(text))
 
 
 def combined_observation_text(
@@ -487,11 +593,11 @@ def generate_before_episode_analysis(
             f"- Medication observations: {metrics['medication']}",
             f"- Navigation observations: {metrics['navigation']}",
             (
-                "- Pause or word-finding mentions: "
+                "- Recorded pause or word-finding mentions: "
                 f"{metrics['pause_mentions']}"
             ),
             (
-                "- Repetition-related mentions: "
+                "- Recorded repetition-related mentions: "
                 f"{metrics['repetition_mentions']}"
             ),
             "",
@@ -506,6 +612,8 @@ def generate_before_episode_analysis(
 
     lines.extend(
         [
+            "",
+            "These observations were recorded before the episode.",
             "",
             "Review boundary:",
             (
@@ -563,11 +671,11 @@ def generate_thirty_day_brief(
         f"- Navigation observations: {metrics['navigation']}",
         f"- High-severity observations: {metrics['high']}",
         (
-            "- Pause or word-finding mentions: "
+            "- Recorded pause or word-finding mentions: "
             f"{metrics['pause_mentions']}"
         ),
         (
-            "- Repetition-related mentions: "
+            "- Recorded repetition-related mentions: "
             f"{metrics['repetition_mentions']}"
         ),
         "",
@@ -662,7 +770,7 @@ def generate_clinician_preparation_summary(
             "",
             "Potential questions for clinical discussion:",
             (
-                "- Which symptoms, routines, medication effects, "
+                "- Which observations, routines, medication effects, "
                 "sleep changes, or environmental factors should "
                 "be monitored more systematically?"
             ),
@@ -693,6 +801,29 @@ def generate_clinician_preparation_summary(
 # Retrieval fallback
 # =============================================================================
 
+
+BEFORE_EPISODE_QUERY_PATTERN = re.compile(
+    r"\bbefore\s+(?:the\s+)?(?:last|latest)"
+    r"(?:\s+(?:bad|high[-\s]severity))?\s+episode\b",
+    flags=re.IGNORECASE,
+)
+
+
+def is_before_episode_question(
+    question: str,
+) -> bool:
+    normalized = " ".join(question.lower().split())
+    return (
+        "before episode" in normalized
+        or "before the episode" in normalized
+        or bool(
+            BEFORE_EPISODE_QUERY_PATTERN.search(
+                normalized,
+            )
+        )
+    )
+
+
 def deterministic_recall(
     df: pd.DataFrame,
     question: str,
@@ -702,16 +833,7 @@ def deterministic_recall(
 
     query = question.lower().strip()
 
-    if any(
-        phrase in query
-        for phrase in [
-            "before episode",
-            "before the episode",
-            "before latest episode",
-            "before the latest episode",
-            "before last bad episode",
-        ]
-    ):
+    if is_before_episode_question(query):
         _, window = before_episode_window(
             df,
         )
@@ -1123,16 +1245,8 @@ def generate_grounded_answer(
     # Before latest high-severity episode
     # -------------------------------------------------------------------------
 
-    if any(
-        phrase in normalized_question
-        for phrase in [
-            "before latest episode",
-            "before the latest episode",
-            "before last episode",
-            "before the last episode",
-            "before latest high-severity episode",
-            "before the latest high-severity episode",
-        ]
+    if is_before_episode_question(
+        normalized_question,
     ):
         episode, records = before_episode_window(
             df,
@@ -1173,8 +1287,8 @@ def generate_grounded_answer(
             f"{metrics['speech']} speech observation(s), "
             f"{metrics['repetition']} repetition observation(s), and "
             f"{metrics['routine']} routine observation(s). "
-            "These records show what was documented before the episode, "
-            "but they do not establish warning signs, prediction, or causation."
+            "These observations were recorded before the episode. "
+            "They do not establish prediction or causation."
         )
 
         return {
@@ -1850,6 +1964,9 @@ def initialize_session_state() -> None:
         "query": "",
         "last_save_message": "",
         "last_save_success": None,
+        "memory_sync_attempted_signature": None,
+        "memory_sync_message": "",
+        "memory_sync_success": None,
     }
 
     for key, value in defaults.items():
@@ -1870,19 +1987,62 @@ initialize_session_state()
 # Current state
 # =============================================================================
 
-df = get_data()
+try:
+    df = get_data()
+except ObservationDataError as exc:
+    st.error(str(exc))
+    st.stop()
 
 metrics = analyze_observations(
     df,
 )
 
-supermemory_available = sdk_available()
 
-memory_status = (
-    "Online"
-    if supermemory_available
-    else "Fallback"
+@st.cache_data(
+    show_spinner=False,
+    ttl=10,
 )
+def get_memory_connection_status() -> Any:
+    return check_connection()
+
+
+memory_connection = get_memory_connection_status()
+supermemory_online = bool(memory_connection.online)
+memory_status = memory_connection.label
+memory_status_class = (
+    "online"
+    if supermemory_online
+    else "fallback"
+)
+
+rows_for_memory = memory_rows(df)
+current_memory_signature = memory_data_signature(
+    rows_for_memory,
+)
+
+if (
+    supermemory_online
+    and st.session_state["memory_sync_attempted_signature"]
+    != current_memory_signature
+):
+    st.session_state["memory_sync_attempted_signature"] = (
+        current_memory_signature
+    )
+
+    sync_result = sync_observations(
+        rows_for_memory,
+    )
+
+    if sync_result["failed"]:
+        st.session_state["memory_sync_success"] = False
+        st.session_state["memory_sync_message"] = (
+            "The local record is available, but Supermemory accepted "
+            f"{sync_result['accepted']} of "
+            f"{sync_result['attempted']} observations during reconciliation."
+        )
+    else:
+        st.session_state["memory_sync_success"] = True
+        st.session_state["memory_sync_message"] = ""
 
 before_episode_analysis = generate_before_episode_analysis(
     df,
@@ -2271,6 +2431,11 @@ render(
             border-radius: 50%;
             background: #4bc081;
             box-shadow: 0 0 0 5px rgba(75, 192, 129, 0.08);
+        }
+
+        .memory-status--fallback .memory-status__dot {
+            background: var(--amber);
+            box-shadow: none;
         }
 
         .memory-ring {
@@ -3514,7 +3679,7 @@ render(
             </h1>
 
             <p class="hero-lead">
-                NeuroBlackBox creates a continuous memory of symptoms,
+                NeuroBlackBox creates a continuous memory of recorded changes,
                 routines, interventions, improvements, caregiver observations,
                 and clinical conversations.
             </p>
@@ -3523,7 +3688,7 @@ render(
                 Families no longer have to reconstruct weeks of cognitive
                 change from memory. Clinicians receive a structured,
                 source-grounded interval history instead of tracing every
-                symptom from the beginning.
+                observation from the beginning.
             </p>
 
             <div class="hero-actions">
@@ -3540,7 +3705,7 @@ render(
                 <span>Local-first memory</span>
                 <span>Source-grounded retrieval</span>
                 <span>Longitudinal history</span>
-                <span>Clinician-ready summaries</span>
+                <span>Clinician-preparation summaries</span>
             </div>
         </div>
 
@@ -3550,7 +3715,7 @@ render(
                     Live longitudinal memory
                 </div>
 
-                <div class="memory-status">
+                <div class="memory-status memory-status--{escape(memory_status_class)}">
                     <span class="memory-status__dot"></span>
                     <span>Supermemory {escape(memory_status)}</span>
                 </div>
@@ -3658,7 +3823,7 @@ render(
                 </h2>
 
                 <p class="section-description">
-                    Patients and families may not remember every symptom,
+                    Patients and families may not remember every observation,
                     improvement, recommendation, medication effect, or
                     contextual change from one appointment to the next.
                     Clinicians must then reconstruct a longitudinal history
@@ -3734,7 +3899,7 @@ render(
 
             <p class="solution-callout__copy">
                 The system connects caregiver observations, prior visit
-                context, intervention history, symptom evolution, and
+                context, intervention history, recorded change over time, and
                 clinician-preparation outputs through a searchable local
                 memory layer.
             </p>
@@ -3782,7 +3947,7 @@ render(
                 </div>
 
                 <div class="capability__copy">
-                    Store dated observations covering symptoms, routines,
+                    Store dated observations covering recorded changes, routines,
                     medication, navigation, significant episodes,
                     contextual changes, interventions, and improvements.
                 </div>
@@ -3813,7 +3978,7 @@ render(
                 </div>
 
                 <div class="capability__copy">
-                    Connect new observations with previous symptoms,
+                    Connect new observations with previous observations,
                     appointments, recommendations, interventions,
                     medication changes, and outcomes.
                 </div>
@@ -3895,7 +4060,7 @@ render(
                         </div>
 
                         <div class="pipeline-step__copy">
-                            Dated source records describe symptoms, routines,
+                            Dated source records describe observed changes, routines,
                             episodes, interventions, appointments, and outcomes.
                         </div>
                     </div>
@@ -4041,7 +4206,7 @@ render(
 
                 <div class="use-case__copy">
                     A caregiver records changes as they occur instead of trying
-                    to reconstruct several weeks of symptoms immediately before
+                    to reconstruct several weeks of observations immediately before
                     an appointment.
                 </div>
             </article>
@@ -4073,7 +4238,7 @@ render(
 
                 <div class="use-case__copy">
                     A clinician can review a structured interval history and
-                    source observations without repeating the entire symptom
+                    source observations without repeating the entire observation
                     traceback from the beginning.
                 </div>
             </article>
@@ -4126,7 +4291,7 @@ render(
                         Record subtle changes before they become vague recall.
                     </li>
                     <li>
-                        Track improvement, deterioration, and recurring patterns.
+                        Track improvements, recurring observations, and contextual changes.
                     </li>
                     <li>
                         Recall previous recommendations and visit context.
@@ -4257,6 +4422,11 @@ render(
     """
 )
 
+if st.session_state["memory_sync_message"]:
+    st.warning(
+        st.session_state["memory_sync_message"]
+    )
+
 if st.session_state["last_save_message"]:
     if st.session_state["last_save_success"]:
         st.success(
@@ -4287,7 +4457,7 @@ with console_left:
     with preset_one:
         st.button(
             "Changes since last visit",
-            use_container_width=True,
+            width="stretch",
             on_click=set_query,
             args=(
                 "What changed after the previous appointment?",
@@ -4296,7 +4466,7 @@ with console_left:
 
         st.button(
             "Repetition patterns",
-            use_container_width=True,
+            width="stretch",
             on_click=set_query,
             args=(
                 "How have repeated questions changed?",
@@ -4306,7 +4476,7 @@ with console_left:
     with preset_two:
         st.button(
             "Speech and pauses",
-            use_container_width=True,
+            width="stretch",
             on_click=set_query,
             args=(
                 "What speech pauses or word-finding changes were recorded?",
@@ -4315,7 +4485,7 @@ with console_left:
 
         st.button(
             "Before latest episode",
-            use_container_width=True,
+            width="stretch",
             on_click=set_query,
             args=(
                 "What was observed before the latest high-severity episode?",
@@ -4340,26 +4510,32 @@ with console_left:
             grounded_answer,
         )
 
-        with st.spinner(
-            "Retrieving supporting source observations..."
-        ):
-            try:
+        semantic_results = []
+
+        if supermemory_online:
+            with st.spinner(
+                "Retrieving supporting source observations..."
+            ):
                 semantic_results = search_observations(
                     question,
                     limit=5,
                 )
-            except Exception:
-                semantic_results = []
 
         semantic_used = display_memory_results(
             semantic_results,
         )
 
         if not semantic_used:
-            st.caption(
-                "Semantic retrieval returned no records. "
-                "Displaying deterministic local fallback."
-            )
+            if supermemory_online:
+                st.caption(
+                    "Semantic retrieval returned no matching records. "
+                    "Displaying deterministic local fallback."
+                )
+            else:
+                st.caption(
+                    "Supermemory Local is unavailable. "
+                    "Displaying deterministic local fallback."
+                )
 
             fallback_results = deterministic_recall(
                 df,
@@ -4439,7 +4615,7 @@ with console_left:
 
             submitted = st.form_submit_button(
                 "Save observation",
-                use_container_width=True,
+                width="stretch",
             )
 
         if submitted:
@@ -4487,31 +4663,58 @@ with console_left:
                     ignore_index=True,
                 )
 
-                save_data(
+                normalized_updated_df = normalize_observation_frame(
                     updated_df,
                 )
+                observation_already_present = (
+                    len(normalized_updated_df) == len(df)
+                )
 
-                try:
+                save_data(
+                    normalized_updated_df,
+                )
+
+                stored_in_memory = False
+
+                if supermemory_online:
                     stored_in_memory = store_observation(
                         memory_row,
                     )
-                except Exception:
-                    stored_in_memory = False
 
                 if stored_in_memory:
                     st.session_state["last_save_success"] = True
 
-                    st.session_state["last_save_message"] = (
-                        "Observation saved to the local record "
-                        "and Supermemory Local."
-                    )
+                    if observation_already_present:
+                        st.session_state["last_save_message"] = (
+                            "This exact observation was already in the local "
+                            "record. Its Supermemory record was confirmed."
+                        )
+                    else:
+                        st.session_state["last_save_message"] = (
+                            "Observation saved to the local record "
+                            "and submitted to Supermemory Local."
+                        )
                 else:
-                    st.session_state["last_save_success"] = False
-
-                    st.session_state["last_save_message"] = (
-                        "Observation saved to the local record. "
-                        "The Supermemory Local write was not confirmed."
+                    st.session_state["last_save_success"] = (
+                        observation_already_present
                     )
+
+                    if observation_already_present:
+                        st.session_state["last_save_message"] = (
+                            "This exact observation was already in the local "
+                            "record, so no duplicate was created."
+                        )
+                    elif supermemory_online:
+                        st.session_state["last_save_message"] = (
+                            "Observation saved to the local record. "
+                            "The Supermemory Local write was not confirmed."
+                        )
+                    else:
+                        st.session_state["last_save_message"] = (
+                            "Observation saved to the local record. "
+                            "Supermemory is in Local fallback and will be "
+                            "reconciled after a verified connection."
+                        )
 
                 st.rerun()
 
@@ -4574,7 +4777,7 @@ with console_right:
                     "observation",
                 ]
             ],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=390,
         )
@@ -4782,7 +4985,7 @@ render(
                     </div>
 
                     <div class="report-list__item">
-                        Which symptoms, routines, medication effects, sleep
+                        Which observations, routines, medication effects, sleep
                         changes, or environmental factors should be monitored
                         more systematically?
                     </div>
@@ -4808,7 +5011,7 @@ with download_one:
         data=thirty_day_brief,
         file_name="neuroblackbox_thirty_day_brief.md",
         mime="text/markdown",
-        use_container_width=True,
+        width="stretch",
     )
 
 with download_two:
@@ -4817,7 +5020,7 @@ with download_two:
         data=clinician_summary,
         file_name="neuroblackbox_clinician_summary.md",
         mime="text/markdown",
-        use_container_width=True,
+        width="stretch",
     )
 
 with download_three:
@@ -4826,7 +5029,7 @@ with download_three:
         data=before_episode_analysis,
         file_name="neuroblackbox_episode_reconstruction.md",
         mime="text/markdown",
-        use_container_width=True,
+        width="stretch",
     )
 
 st.divider()

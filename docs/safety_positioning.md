@@ -17,7 +17,7 @@ NeuroBlackBox should never claim:
 - this person is declining
 - this person is at medical risk
 - this pattern predicts a disease
-- this symptom requires a specific treatment
+- this observation requires a specific treatment
 - this observation confirms a condition
 
 NeuroBlackBox should only claim:
@@ -34,9 +34,9 @@ Use language like:
 
 - caregiver observation
 - source-grounded timeline
-- doctor-prep summary
+- clinician-preparation summary
 - clinician discussion
-- observed change
+- recorded change
 - repeated question
 - routine disruption
 - speech pause
@@ -104,11 +104,13 @@ Every generated summary should follow five rules:
 
 Before the Jun 30 high-severity episode, the log shows a routine disruption on Jun 22, a repeated-question observation on Jun 25, and word-finding pauses on Jun 28.
 
-This is not a diagnosis or prediction. These observations may be useful to discuss with a clinician.
+These observations were recorded before the episode. Their sequence does not
+establish prediction or causation. This is not a diagnosis, and the source
+observations may be useful to discuss with a clinician.
 
 ## 9. Unsafe Output Example
 
-These symptoms suggest Alzheimer’s and the patient should begin treatment.
+These observations confirm Alzheimer’s disease and mean treatment should begin.
 
 This is unsafe because it makes a diagnostic suggestion and implies treatment direction.
 
@@ -117,8 +119,8 @@ This is unsafe because it makes a diagnostic suggestion and implies treatment di
 NeuroBlackBox should prefer:
 
 - "high-severity episode" over "medical crisis"
-- "observed change" over "symptom"
-- "doctor-prep summary" over "clinical report"
+- "caregiver-reported observation" over a clinical label
+- "clinician-preparation summary" over "clinical report"
 - "possible discussion points" over "recommendations"
 - "source observations" over "evidence of disease"
 
@@ -126,13 +128,20 @@ NeuroBlackBox should prefer:
 
 The product should treat caregiver observations as sensitive by default.
 
-The local-first architecture supports this by keeping the memory layer on the user’s machine during the hackathon prototype.
+The tracked seed is wholly fictional, synthetic, and immutable. First launch
+creates an ignored runtime record, and the app never writes caregiver entries
+to the public seed. Real identifiers must never be added to the tracked sample.
+
+The local-first architecture keeps the runtime record and configured memory
+service on the user’s machine during this prototype. Local-first does not by
+itself provide encryption, access control, identity governance, clinical
+privacy compliance, or production authorization.
 
 The `.env` file must never be committed.
 
 The app should avoid logging API keys, private keys, or personal medical details in public repo files.
 
-## 12. Clinician-Safe North Star
+## 12. Clinician-Preparation North Star
 
 The product should help a caregiver say:
 
