@@ -120,9 +120,10 @@ A caregiver enters a direct observation with:
 
 ### 2. Remember
 
-The observation is written to the ignored local runtime record. When the
-Supermemory health probe succeeds, it is also reconciled into the configured
-semantic-memory container using a deterministic ID.
+The observation is written atomically to the ignored local runtime record. When
+the Supermemory connection probe succeeds, the app submits it to the configured
+semantic-memory container using a deterministic ID. Indexing is asynchronous,
+so an accepted submission is not yet proof that semantic retrieval is ready.
 
 - local persistence remains available if Supermemory is offline
 - resubmitting the same exact record does not create a duplicate
@@ -470,9 +471,9 @@ This separation allows the Streamlit application to retain deterministic local b
 `data/sample_observations.csv` is a wholly fictional, synthetic, immutable
 seed used only to initialize a first-run local record. The application never
 writes caregiver entries to the tracked seed. On first launch it creates
-`data/runtime_observations.csv`; all runtime entries are saved there, and that
-file is ignored by Git. Exact duplicate records are suppressed during
-normalization.
+`data/runtime_observations.csv`; all runtime entries are saved there through an
+atomic same-directory replacement, and that file is ignored by Git. Exact
+duplicate records are suppressed during normalization.
 
 Each source observation follows a small interpretable schema.
 
@@ -503,11 +504,12 @@ The schema is intentionally small so that:
 ## Memory architecture
 
 The ignored runtime CSV is the canonical local record. When Supermemory Local
-passes its health probe, session reconciliation projects each runtime record
-into the configured container using a deterministic custom ID. The same exact
+passes its connection probe, session reconciliation submits each runtime record
+to the configured container using a deterministic custom ID. The same exact
 record resolves to the same semantic-memory ID instead of creating another
-copy. When the service is unavailable, the app remains usable in Local
-fallback.
+copy. A failed or partial reconciliation remains eligible for retry. Because
+indexing is asynchronous, semantic retrieval must be tested separately. When
+the service is unavailable, the app remains usable in Local fallback.
 
 ### Local structured record
 
@@ -760,11 +762,13 @@ Confirm these values in the ignored `.env`:
 
 ```dotenv
 SUPERMEMORY_API_URL=http://localhost:6767
-SUPERMEMORY_API_KEY=local
+SUPERMEMORY_API_KEY=sm_your_local_api_key_here
 NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor_v2
 ```
 
-Use the local key provided by your Supermemory Local setup.
+Replace the placeholder with the `sm_...` API key displayed by the running
+Supermemory Local interface at `http://localhost:6767`. Do not use the literal
+placeholder or the former value `local`.
 
 The `v2` tag is a clean fictional demo namespace. Changing container tags
 isolates old memory; it does not delete it.
@@ -804,8 +808,10 @@ http://localhost:8501
 ```
 
 On first launch, the app copies the immutable synthetic seed into the ignored
-runtime record. It reports `Supermemory: Online` only after a real read-only
-service probe succeeds; otherwise it remains fully usable in `Local fallback`.
+runtime record. It reports `Supermemory: Online` only after a bounded read-only
+API request succeeds; otherwise it remains fully usable in `Local fallback`.
+Online confirms endpoint reachability and authentication, not completion of
+asynchronous document indexing.
 
 ### 6. Run the release preflight
 
@@ -817,8 +823,9 @@ git check-ignore -v data/runtime_observations.csv
 git diff --check
 ```
 
-Do not claim semantic storage during a demo unless the interface reports
-`Supermemory: Online`.
+Do not claim semantic retrieval during a demo based on `Supermemory: Online`
+alone. Confirm that the submitted source record is returned by a semantic query;
+new submissions may remain queued while local indexing completes.
 
 ---
 
@@ -839,7 +846,7 @@ localhost:8501
   │          ▼
   ├── Runtime record (ignored, read/write)
   │   data/runtime_observations.csv
-  │          │ health-gated reconciliation
+  │          │ connection-gated submission and retry
   │          ▼
   └── Supermemory Local (when verified Online)
       localhost:6767
@@ -864,9 +871,9 @@ Show the landing page and the longitudinal-memory architecture.
 Add one direct caregiver observation.
 
 Exact-record deduplication and deterministic memory IDs make the scripted
-entry repeat-safe. For a completely clean semantic demonstration, choose a
-fresh container suffix; old container data remains isolated and is not
-deleted.
+entry repeat-safe. Wait for asynchronous indexing before expecting a new entry
+in semantic results. For a completely clean semantic demonstration, choose a
+fresh container suffix; old container data remains isolated and is not deleted.
 
 ### 1:15–1:55 — Ask
 
@@ -978,7 +985,11 @@ The system answers the user’s question while explicitly separating:
 
 ### Why local-first?
 
-Cognitive-care observations can contain sensitive family, behavioral, medication, and routine information. The prototype demonstrates a workflow in which the memory service and structured record run locally.
+Cognitive-care observations can contain sensitive family, behavioral,
+medication, and routine information. The prototype demonstrates a workflow in
+which the memory service and structured record run locally. This process
+boundary does not itself provide encryption, access control, user isolation,
+backup, or regulatory compliance.
 
 ---
 

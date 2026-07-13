@@ -21,3 +21,6 @@ exports/
 
 # Generated runtime caregiver record
 /data/runtime_observations.csv
+
+# Supermemory Local runtime state
+/.supermemory/

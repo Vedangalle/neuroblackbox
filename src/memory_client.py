@@ -85,7 +85,7 @@ def check_connection(
     try:
         client.search.documents(
             q="NeuroBlackBox connectivity check",
-            container_tag=CONTAINER_TAG,
+            container_tags=[CONTAINER_TAG],
             limit=1,
             timeout=timeout_seconds,
         )
@@ -172,7 +172,7 @@ def _add_observation(
 
     client.add(
         content=observation_to_memory(observation),
-        container_tag=CONTAINER_TAG,
+        container_tags=[CONTAINER_TAG],
         custom_id=custom_id,
         metadata={
             "project": "NeuroBlackBox",
@@ -243,7 +243,7 @@ def search_observations(
     try:
         response = client.search.documents(
             q=question,
-            container_tag=CONTAINER_TAG,
+            container_tags=[CONTAINER_TAG],
             limit=limit,
         )
         return getattr(response, "results", []) or []

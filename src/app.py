@@ -7,6 +7,7 @@ import html
 import os
 import re
 import shutil
+import tempfile
 
 import pandas as pd
 import streamlit as st
@@ -141,10 +142,31 @@ def ensure_runtime_data() -> None:
             parents=True,
             exist_ok=True,
         )
-        shutil.copy2(
-            SEED_DATA_PATH,
-            DATA_PATH,
-        )
+        with tempfile.NamedTemporaryFile(
+            dir=DATA_PATH.parent,
+            prefix=f".{DATA_PATH.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+
+        try:
+            shutil.copyfile(
+                SEED_DATA_PATH,
+                temporary_path,
+            )
+            os.chmod(
+                temporary_path,
+                0o600,
+            )
+            os.replace(
+                temporary_path,
+                DATA_PATH,
+            )
+        finally:
+            temporary_path.unlink(
+                missing_ok=True,
+            )
     except OSError as exc:
         raise ObservationDataError(
             f"Could not initialize the local runtime record at {DATA_PATH}."
@@ -264,11 +286,48 @@ def save_data(
         df,
     )
 
-    normalized.to_csv(
-        DATA_PATH,
-        index=False,
-        date_format="%Y-%m-%d",
-    )
+    temporary_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=DATA_PATH.parent,
+            prefix=f".{DATA_PATH.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(
+                temporary_file.name,
+            )
+            normalized.to_csv(
+                temporary_file,
+                index=False,
+                date_format="%Y-%m-%d",
+            )
+            temporary_file.flush()
+            os.fsync(
+                temporary_file.fileno(),
+            )
+
+        os.chmod(
+            temporary_path,
+            0o600,
+        )
+        os.replace(
+            temporary_path,
+            DATA_PATH,
+        )
+    except OSError as exc:
+        raise ObservationDataError(
+            f"Could not save the local runtime record at {DATA_PATH}."
+        ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(
+                missing_ok=True,
+            )
 
     load_data.clear()
 
@@ -296,6 +355,18 @@ def memory_data_signature(
     return tuple(
         tuple(str(row.get(column, "")) for column in OBSERVATION_COLUMNS)
         for row in rows
+    )
+
+
+def memory_sync_required(
+    connection_online: bool,
+    successful_signature: tuple[tuple[str, ...], ...] | None,
+    current_signature: tuple[tuple[str, ...], ...],
+) -> bool:
+    """Retry until the complete current record has synchronized."""
+    return (
+        connection_online
+        and successful_signature != current_signature
     )
 
 
@@ -722,6 +793,16 @@ def generate_clinician_preparation_summary(
         6,
     )
 
+    category_counts = df["type"].value_counts()
+    recorded_categories = [
+        f"- {category.title()}: {int(count)}"
+        for category, count in category_counts.items()
+    ]
+
+    discussion_categories = natural_language_list(
+        category_names(df),
+    )
+
     lines = [
         "CAREGIVER-CLINICIAN PREPARATION SUMMARY",
         "",
@@ -732,11 +813,7 @@ def generate_clinician_preparation_summary(
         "",
         "Recorded observation categories:",
         f"- Total records: {metrics['total']}",
-        f"- Speech: {metrics['speech']}",
-        f"- Repetition: {metrics['repetition']}",
-        f"- Routine: {metrics['routine']}",
-        f"- Medication: {metrics['medication']}",
-        f"- Navigation: {metrics['navigation']}",
+        *recorded_categories,
         f"- High-severity records: {metrics['high']}",
     ]
 
@@ -770,9 +847,8 @@ def generate_clinician_preparation_summary(
             "",
             "Potential questions for clinical discussion:",
             (
-                "- Which observations, routines, medication effects, "
-                "sleep changes, or environmental factors should "
-                "be monitored more systematically?"
+                f"- Which recorded {discussion_categories} observations "
+                "should be monitored more systematically?"
             ),
             (
                 "- Are the recorded changes sufficiently concerning "
@@ -1052,6 +1128,34 @@ def category_summary(
         f"{category}: {int(count)}"
         for category, count in counts.items()
     )
+
+
+def category_names(
+    records: pd.DataFrame,
+) -> list[str]:
+    if records.empty:
+        return []
+
+    return [
+        str(category)
+        for category in records["type"].dropna().unique()
+        if str(category).strip()
+    ]
+
+
+def natural_language_list(
+    values: list[str],
+) -> str:
+    if not values:
+        return ""
+
+    if len(values) == 1:
+        return values[0]
+
+    if len(values) == 2:
+        return f"{values[0]} and {values[1]}"
+
+    return f"{', '.join(values[:-1])}, and {values[-1]}"
 
 
 def records_for_repetition(
@@ -1550,12 +1654,41 @@ def generate_grounded_answer(
             if item not in evidence
         )
 
+        discussion_records = pd.concat(
+            [
+                high_records,
+                recent_records,
+            ],
+            ignore_index=True,
+        ).drop_duplicates(
+            subset=OBSERVATION_COLUMNS,
+            keep="first",
+        )
+
+        discussion_category_names = category_names(
+            discussion_records,
+        )
+
+        discussion_categories = natural_language_list(
+            discussion_category_names,
+        )
+
+        category_label = (
+            "category"
+            if len(discussion_category_names) == 1
+            else "categories"
+        )
+
+        category_clause = (
+            f"the recorded {discussion_categories} {category_label}"
+            if discussion_categories
+            else "the dated source records"
+        )
+
         answer = (
             "The next clinical discussion should prioritize the "
-            f"{len(high_records)} high-severity record(s), recent speech "
-            "and repetition changes, medication or routine disruptions, "
-            "and whether any recommendations from the previous visit were "
-            "followed and appeared helpful. Bring the dated source records "
+            f"{len(high_records)} high-severity record(s) and "
+            f"{category_clause}. Bring the dated source records "
             "so the clinician can review the original observations."
         )
 
@@ -1563,11 +1696,9 @@ def generate_grounded_answer(
             "title": "Priority topics for the next clinical discussion",
             "answer": answer,
             "evidence": evidence[:6],
-            "record_count": len(
-                high_records
-            ),
+            "record_count": len(discussion_records),
             "date_range": format_date_range(
-                df,
+                discussion_records,
             ),
             "boundary": (
                 "NeuroBlackBox organizes discussion topics but does not "
@@ -1964,7 +2095,7 @@ def initialize_session_state() -> None:
         "query": "",
         "last_save_message": "",
         "last_save_success": None,
-        "memory_sync_attempted_signature": None,
+        "memory_sync_successful_signature": None,
         "memory_sync_message": "",
         "memory_sync_success": None,
     }
@@ -2020,15 +2151,11 @@ current_memory_signature = memory_data_signature(
     rows_for_memory,
 )
 
-if (
-    supermemory_online
-    and st.session_state["memory_sync_attempted_signature"]
-    != current_memory_signature
+if memory_sync_required(
+    supermemory_online,
+    st.session_state["memory_sync_successful_signature"],
+    current_memory_signature,
 ):
-    st.session_state["memory_sync_attempted_signature"] = (
-        current_memory_signature
-    )
-
     sync_result = sync_observations(
         rows_for_memory,
     )
@@ -2041,6 +2168,9 @@ if (
             f"{sync_result['attempted']} observations during reconciliation."
         )
     else:
+        st.session_state["memory_sync_successful_signature"] = (
+            current_memory_signature
+        )
         st.session_state["memory_sync_success"] = True
         st.session_state["memory_sync_message"] = ""
 

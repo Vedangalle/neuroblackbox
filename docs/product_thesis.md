@@ -131,7 +131,7 @@ The product should feel calm, careful, and useful.
 
 1. First launch initializes an ignored runtime record from the fictional seed.
 2. A caregiver logs a short source observation.
-3. NeuroBlackBox saves it only to the local runtime record.
+3. NeuroBlackBox saves it atomically to the canonical local runtime record.
 4. Exact duplicate records are suppressed.
 5. When Supermemory is verified Online, session reconciliation submits records
    with deterministic IDs; otherwise the app remains in Local fallback.

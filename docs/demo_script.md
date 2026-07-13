@@ -17,13 +17,15 @@ Confirm that `.env` uses the clean demo namespace:
 NEUROBLACKBOX_CONTAINER=neuroblackbox_demo_patient_eleanor_v2
 ```
 
-Start Supermemory Local, then start Streamlit. Claim semantic storage only if
-the interface reports `Supermemory: Online`; `Local fallback` means the local
-record and deterministic retrieval remain available, but the service probe did
-not verify Supermemory.
+Start Supermemory Local, then start Streamlit. `Supermemory: Online` confirms a
+bounded authenticated API request, not completion of asynchronous indexing.
+Claim semantic retrieval only after the submitted source record appears in a
+semantic query. `Local fallback` means the local record and deterministic
+retrieval remain available, but the service probe did not verify Supermemory.
 
-The tracked seed and every identity are synthetic. The app writes only to the
-ignored runtime record. Exact-record deduplication and deterministic memory IDs
+The tracked seed and every identity are synthetic. The app writes its canonical
+CSV state only to the ignored runtime record, then conditionally submits records
+to Supermemory Local. Exact-record deduplication and deterministic memory IDs
 make the scripted entry repeat-safe. For a completely clean semantic namespace,
 use a fresh container suffix; old container data is isolated, not deleted.
 
@@ -48,8 +50,9 @@ Point to the clinical-boundary banner, then the memory-console status.
 Explain:
 
 > The Online label appears only after a read-only connection and authentication
-> probe succeeds. If the service is unavailable, the app says Local fallback
-> and continues using the inspectable local record.
+> probe succeeds. It does not assert that a queued document has finished
+> indexing. If the service is unavailable, the app says Local fallback and
+> continues using the inspectable local record.
 
 ### 2. Add one fictional source observation
 
@@ -70,6 +73,7 @@ Expected result:
 - the ignored runtime CSV is updated
 - the tracked synthetic seed remains unchanged
 - Online mode submits the record with a deterministic custom ID
+- semantic results may appear only after asynchronous indexing finishes
 - entering the exact record again does not create a duplicate
 
 ### 3. Ask about repeated questions

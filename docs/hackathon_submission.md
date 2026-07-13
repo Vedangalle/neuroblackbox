@@ -41,13 +41,15 @@ documents.
 
 The public repository contains an immutable, fictional synthetic seed. On first
 launch, the app copies it into an ignored runtime CSV. Every new entry is saved
-only to that local runtime record.
+atomically to that canonical local record before any semantic-memory submission.
 
-The app performs a bounded read-only service probe. Only a successful probe
-produces the `Online` state. When Online, startup/session reconciliation submits
-each runtime observation to the configured Supermemory container using a
+The app performs a bounded read-only API probe. Only a successful probe produces
+the `Online` state. When Online, startup/session reconciliation submits each
+runtime observation to the configured Supermemory container using a
 deterministic custom ID. The same exact observation resolves to the same ID,
-making reconciliation and repeated demos idempotent.
+making repeated submissions idempotent. Partial reconciliation is retried on a
+later app run. Online does not prove asynchronous indexing has completed;
+semantic retrieval is verified separately.
 
 If the service is unavailable, the interface explicitly reports `Local
 fallback`; deterministic retrieval and report generation remain available from
