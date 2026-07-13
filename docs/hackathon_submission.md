@@ -121,6 +121,13 @@ data movement for this prototype, but it does not by itself provide encryption,
 access control, identity governance, clinical compliance, or production
 authorization.
 
+The Streamlit application, structured runtime record, and Supermemory Local
+service run on the user's machine. Model-dependent Supermemory operations may
+still send relevant content to the configured external model provider. That
+provider's privacy and retention policies remain part of the deployment's data
+boundary; local-first is not a guarantee that all sensitive content remains on
+the machine.
+
 ## Technical stack
 
 - Python 3.12+

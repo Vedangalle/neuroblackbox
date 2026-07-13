@@ -23,6 +23,11 @@ Claim semantic retrieval only after the submitted source record appears in a
 semantic query. `Local fallback` means the local record and deterministic
 retrieval remain available, but the service probe did not verify Supermemory.
 
+State the privacy boundary explicitly: the app, structured runtime record, and
+Supermemory Local service run locally, but model-dependent Supermemory
+operations may send relevant content to the configured external model provider.
+Local-first does not mean that every processing dependency is local.
+
 The tracked seed and every identity are synthetic. The app writes its canonical
 CSV state only to the ignored runtime record, then conditionally submits records
 to Supermemory Local. Exact-record deduplication and deterministic memory IDs

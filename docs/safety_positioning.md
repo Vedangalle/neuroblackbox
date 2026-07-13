@@ -137,6 +137,14 @@ service on the user’s machine during this prototype. Local-first does not by
 itself provide encryption, access control, identity governance, clinical
 privacy compliance, or production authorization.
 
+Model-dependent Supermemory operations may send relevant caregiver content to
+the configured external model provider, even though the application, structured
+runtime record, and Supermemory Local service run locally. The provider's data
+handling and retention policies are therefore part of the privacy boundary.
+Do not claim that local-first operation guarantees sensitive content remains on
+the user's machine unless every configured model dependency is also local and
+verified.
+
 The `.env` file must never be committed.
 
 The app should avoid logging API keys, private keys, or personal medical details in public repo files.

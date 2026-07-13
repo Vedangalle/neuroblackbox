@@ -82,10 +82,10 @@ A caregiver may write notes about confusion, medication, routine disruption, spe
 
 A local-first architecture is important because it creates a stronger trust model:
 
-- observations can stay on the user’s machine
-- memory search can run locally
+- the structured observation record can stay on the user's machine
+- memory search can run through a local service
 - the app can avoid unnecessary cloud storage
-- the user has more control over sensitive family context
+- the user has more control over the configured processing boundary
 
 Supermemory Local is valuable because it gives NeuroBlackBox a local memory layer that can store and retrieve observations without turning the product into a cloud-first data collection system.
 
@@ -95,6 +95,13 @@ file. When a bounded health probe verifies Supermemory Local, the app projects
 runtime observations into semantic memory using deterministic IDs. Local-first
 does not by itself provide encryption, access control, clinical compliance, or
 production authorization.
+
+Model-dependent Supermemory operations may send relevant observation content to
+the configured external model provider, even while the application, structured
+runtime record, and Supermemory Local service run locally. Provider privacy and
+retention behavior therefore remain inside the system's data boundary. The
+architecture should be called fully local only when every configured model
+dependency is local and that configuration has been verified.
 
 ## 6. Why Memory Is the Right Primitive
 
@@ -238,7 +245,7 @@ Potential future directions include:
 - appointment-prep packets
 - clinician handoff mode
 - longitudinal trend charts
-- privacy-preserving family memory vault
+- privacy-engineered family memory vault with explicit provider boundaries
 - caregiver burden summaries
 - export formats for doctor visits
 

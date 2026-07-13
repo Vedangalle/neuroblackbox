@@ -507,9 +507,13 @@ The ignored runtime CSV is the canonical local record. When Supermemory Local
 passes its connection probe, session reconciliation submits each runtime record
 to the configured container using a deterministic custom ID. The same exact
 record resolves to the same semantic-memory ID instead of creating another
-copy. A failed or partial reconciliation remains eligible for retry. Because
-indexing is asynchronous, semantic retrieval must be tested separately. When
-the service is unavailable, the app remains usable in Local fallback.
+copy. A synchronously rejected or partial submission remains eligible for
+retry. The SDK `add` response acknowledges submission only; Supermemory
+processing continues asynchronously through its own lifecycle states. The app
+does not currently poll those states, so it cannot detect or retry a document
+that is accepted and later reaches `failed`. Terminal status and semantic
+retrieval must be verified separately. When the service is unavailable, the app
+remains usable in Local fallback.
 
 ### Local structured record
 
@@ -573,7 +577,7 @@ Supermemory Local gives the prototype:
 - semantic retrieval over caregiver language
 - ranked source observations
 - natural-language access to longitudinal context
-- local execution for a privacy-sensitive prototype
+- local application, structured-record, and memory-service execution
 - a clean boundary between memory infrastructure and application logic
 
 NeuroBlackBox still maintains a deterministic CSV fallback because semantic retrieval can be incomplete or unavailable.
@@ -990,6 +994,15 @@ medication, and routine information. The prototype demonstrates a workflow in
 which the memory service and structured record run locally. This process
 boundary does not itself provide encryption, access control, user isolation,
 backup, or regulatory compliance.
+
+Model-dependent Supermemory operations may send relevant record content to the
+configured external model provider for processing, even though the Streamlit
+application, structured runtime record, and Supermemory Local service run on the
+user's machine. The privacy and retention policies of that provider therefore
+remain part of the system boundary. A local-first deployment must not be
+described as fully local or as guaranteeing that sensitive content never leaves
+the machine unless every configured model dependency is also local and has been
+verified.
 
 ---
 

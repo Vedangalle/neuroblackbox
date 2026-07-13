@@ -362,6 +362,30 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("SUPERMEMORY_API_KEY=sm_your_local_api_key_here", template)
         self.assertNotIn("SUPERMEMORY_API_KEY=local", template)
 
+    def test_async_submission_language_does_not_claim_completion(self) -> None:
+        source = APP_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("Its Supermemory submission was accepted.", source)
+        self.assertNotIn("Its Supermemory record was confirmed.", source)
+
+    def test_privacy_docs_include_external_provider_boundary(self) -> None:
+        paths = (
+            REPOSITORY_ROOT / "README.md",
+            REPOSITORY_ROOT / "docs" / "demo_script.md",
+            REPOSITORY_ROOT / "docs" / "hackathon_submission.md",
+            REPOSITORY_ROOT / "docs" / "product_thesis.md",
+            REPOSITORY_ROOT / "docs" / "safety_positioning.md",
+        )
+
+        for path in paths:
+            content = path.read_text(encoding="utf-8").lower()
+            self.assertIn("external model provider", content, path)
+            self.assertRegex(
+                content,
+                r"model-dependent\s+supermemory\s+operations",
+                path,
+            )
+
     def test_python_files_have_final_newlines(self) -> None:
         for path in (APP_PATH, MEMORY_CLIENT_PATH, Path(__file__)):
             self.assertTrue(path.read_bytes().endswith(b"\n"), path)

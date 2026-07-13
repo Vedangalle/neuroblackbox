@@ -4288,7 +4288,9 @@ render(
                         Supports questions across a longitudinal history.
                     </li>
                     <li>
-                        Runs locally for privacy-sensitive workflows.
+                        Keeps the app, structured record, and memory service
+                        local; model-dependent processing may use the configured
+                        external provider.
                     </li>
                 </ul>
             </aside>
@@ -4817,7 +4819,7 @@ with console_left:
                     if observation_already_present:
                         st.session_state["last_save_message"] = (
                             "This exact observation was already in the local "
-                            "record. Its Supermemory record was confirmed."
+                            "record. Its Supermemory submission was accepted."
                         )
                     else:
                         st.session_state["last_save_message"] = (
